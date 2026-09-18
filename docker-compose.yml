@@ -1,0 +1,30 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: fava
+      POSTGRES_USER: fava
+      POSTGRES_PASSWORD: fava
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fava -d fava"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FAVA_DB_URL: jdbc:postgresql://db:5432/fava
+      FAVA_DB_USERNAME: fava
+      FAVA_DB_PASSWORD: fava
+      FAVA_TELEGRAM_BOT_TOKEN: ${FAVA_TELEGRAM_BOT_TOKEN:-}
+      FAVA_OPENROUTER_API_KEY: ${FAVA_OPENROUTER_API_KEY:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy

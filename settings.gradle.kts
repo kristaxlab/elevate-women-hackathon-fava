@@ -1,0 +1,10 @@
+rootProject.name = "fava"
+
+include(
+    "app",
+    "telegram",
+    "ingest",
+    "catalog",
+    "classify",
+    "search",
+)

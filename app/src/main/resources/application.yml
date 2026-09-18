@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: fava
+  datasource:
+    url: ${FAVA_DB_URL:jdbc:postgresql://localhost:5432/fava}
+    username: ${FAVA_DB_USERNAME:fava}
+    password: ${FAVA_DB_PASSWORD:fava}
+  messages:
+    basename: messages
+    encoding: UTF-8
+
+# Placeholders for later slices (unused in #1)
+fava:
+  telegram:
+    bot-token: ${FAVA_TELEGRAM_BOT_TOKEN:}
+  openrouter:
+    api-key: ${FAVA_OPENROUTER_API_KEY:}
+    base-url: ${FAVA_OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+
+server:
+  port: ${FAVA_SERVER_PORT:8080}

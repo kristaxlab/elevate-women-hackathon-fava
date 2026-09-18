@@ -1,0 +1,7 @@
+plugins {
+    // library module — no boot plugin
+}
+
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter")
+}
