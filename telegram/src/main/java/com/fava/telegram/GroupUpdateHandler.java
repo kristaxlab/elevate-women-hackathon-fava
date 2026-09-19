@@ -9,6 +9,7 @@ import com.fava.ingest.AcceptedDraft;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
 import com.fava.ingest.NormalizeResult;
+import com.fava.ingest.ThemePickCallback;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +25,7 @@ import org.springframework.context.MessageSource;
  *   <li>{@code /setup} with themes on the same message (e.g. {@code /setup AI, Fitness}), or
  *       {@code /setup} alone then the next message from the same admin with the theme list</li>
  *   <li>Messages in a configured Catalog's Inbox thread → normalize, file (or reject)</li>
+ *   <li>Theme Topic pick {@code callback_query} → complete Filing</li>
  *   <li>Non-command messages in an unconfigured group → prompt admins to run {@code /setup}</li>
  * </ul>
  * Private chats are ignored (see {@link DmUpdateHandler}).
@@ -74,6 +76,10 @@ public final class GroupUpdateHandler {
 		if (update == null) {
 			return;
 		}
+		if (update.callbackQuery() != null) {
+			handleCallbackQuery(update.callbackQuery());
+			return;
+		}
 		if (update.myChatMember() != null) {
 			handleMyChatMember(update.myChatMember());
 			return;
@@ -87,6 +93,31 @@ public final class GroupUpdateHandler {
 			return;
 		}
 		handleGroupMessage(message);
+	}
+
+	private void handleCallbackQuery(TelegramCallbackQuery query) {
+		if (query.message() == null || query.message().chat() == null) {
+			return;
+		}
+		TelegramChat chat = query.message().chat();
+		if (!isGroupChat(chat.type())) {
+			return;
+		}
+		Optional<ThemePickCallback.Parsed> pick = ThemePickCallback.parse(query.data());
+		if (pick.isEmpty()) {
+			return;
+		}
+		Optional<Catalog> catalog = catalogStore.findByChatId(chat.id());
+		if (catalog.isEmpty()) {
+			outbound.answerCallbackQuery(query.id());
+			return;
+		}
+		inboxFiling.completeThemePick(
+				query.id(),
+				chat.id(),
+				pick.get().sourceMessageId(),
+				pick.get().themeIndex(),
+				catalog.get());
 	}
 
 	private void handleMyChatMember(TelegramChatMemberUpdated change) {

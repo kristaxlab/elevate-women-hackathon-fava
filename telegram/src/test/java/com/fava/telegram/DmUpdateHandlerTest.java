@@ -139,6 +139,15 @@ class DmUpdateHandlerTest {
 		}
 
 		@Override
+		public void replyTextWithCallbackButtons(
+				long chatId, long replyToMessageId, String text, List<InlineCallbackButton> buttons) {
+		}
+
+		@Override
+		public void answerCallbackQuery(String callbackQueryId) {
+		}
+
+		@Override
 		public void copyMessage(long chatId, long fromMessageId, long toMessageThreadId) {
 		}
 

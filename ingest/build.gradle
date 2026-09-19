@@ -1,5 +1,6 @@
 dependencies {
 	implementation project(':catalog')
+	implementation project(':classify')
 
 	implementation 'org.springframework.boot:spring-boot-starter'
 

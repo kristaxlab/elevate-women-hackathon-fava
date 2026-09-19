@@ -13,5 +13,10 @@ public interface TelegramOutbound {
 
 	void replyText(long chatId, long replyToMessageId, String text);
 
+	void replyTextWithCallbackButtons(
+			long chatId, long replyToMessageId, String text, List<InlineCallbackButton> buttons);
+
+	void answerCallbackQuery(String callbackQueryId);
+
 	void copyMessage(long chatId, long fromMessageId, long toMessageThreadId);
 }

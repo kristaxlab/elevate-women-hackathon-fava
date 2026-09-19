@@ -10,9 +10,13 @@ import com.fava.catalog.JdbcSavedItemStore;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
+import com.fava.classify.ClassifierDecision;
+import com.fava.classify.TopicClassifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +44,7 @@ class InboxFilingServiceTest {
 	private Catalog catalog;
 	private SavedItemStore savedItemStore;
 	private RecordingFilingPort telegram;
+	private ScriptedClassifier classifier;
 	private InboxFilingService filing;
 
 	@BeforeEach
@@ -56,11 +61,13 @@ class InboxFilingServiceTest {
 				List.of(new ThemeTopic("AI", 31L), new ThemeTopic("Fitness", 32L)));
 		catalogStore.create(catalog);
 		telegram = new RecordingFilingPort();
-		filing = new InboxFilingService(savedItemStore, telegram);
+		classifier = new ScriptedClassifier(new ClassifierDecision.Confident("AI"));
+		filing = new InboxFilingService(savedItemStore, telegram, classifier);
 	}
 
 	@Test
-	void filesNewUrlIntoFirstTheme_persists_copiesAndReplies() {
+	void confidentDecision_filesChosenTheme_persists_copiesAndReplies() {
+		classifier.next = new ClassifierDecision.Confident("Fitness");
 		AcceptedDraft draft = new AcceptedDraft(
 				CHAT_ID,
 				7L,
@@ -71,19 +78,20 @@ class InboxFilingServiceTest {
 		FilingResult result = filing.file(draft, catalog);
 
 		assertThat(result).isInstanceOf(FilingResult.Filed.class);
-		assertThat(((FilingResult.Filed) result).themeName()).isEqualTo("AI");
+		assertThat(((FilingResult.Filed) result).themeName()).isEqualTo("Fitness");
 		assertThat(savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://www.instagram.com/p/NEW/"))
 				.isPresent()
 				.get()
 				.extracting(SavedItem::themeName)
-				.isEqualTo("AI");
-		assertThat(telegram.copies).containsExactly(new RecordingFilingPort.Copy(CHAT_ID, 7L, 31L));
+				.isEqualTo("Fitness");
+		assertThat(telegram.copies).containsExactly(new RecordingFilingPort.Copy(CHAT_ID, 7L, 32L));
 		assertThat(telegram.replies).containsExactly(
-				new RecordingFilingPort.Reply(CHAT_ID, 7L, "Filed → AI"));
+				new RecordingFilingPort.Reply(CHAT_ID, 7L, "Filed → Fitness"));
+		assertThat(telegram.buttonReplies).isEmpty();
 	}
 
 	@Test
-	void duplicateUrlInSameCatalog_skipsCopyAndReportsExistingTheme() {
+	void duplicateUrlInSameCatalog_skipsClassifyCopyAndReportsExistingTheme() {
 		savedItemStore.save(new SavedItem(
 				null,
 				CHAT_ID,
@@ -102,13 +110,68 @@ class InboxFilingServiceTest {
 
 		assertThat(result).isInstanceOf(FilingResult.AlreadyFiled.class);
 		assertThat(((FilingResult.AlreadyFiled) result).themeName()).isEqualTo("Fitness");
+		assertThat(classifier.calls.get()).isZero();
 		assertThat(telegram.copies).isEmpty();
 		assertThat(telegram.replies).containsExactly(
 				new RecordingFilingPort.Reply(CHAT_ID, 99L, "Already saved → Fitness"));
 	}
 
 	@Test
-	void forwardWithoutUrl_filesIntoFirstTheme() {
+	void needsUserPick_doesNotPersist_asksThemeButtonsOnly() {
+		classifier.next = new ClassifierDecision.NeedsUserPick();
+		AcceptedDraft draft = new AcceptedDraft(
+				CHAT_ID,
+				8L,
+				INBOX_THREAD,
+				Optional.of("https://example.com/ambig"),
+				"https://example.com/ambig");
+
+		FilingResult result = filing.file(draft, catalog);
+
+		assertThat(result).isInstanceOf(FilingResult.AwaitingThemePick.class);
+		assertThat(savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://example.com/ambig")).isEmpty();
+		assertThat(telegram.copies).isEmpty();
+		assertThat(telegram.replies).isEmpty();
+		assertThat(telegram.buttonReplies).hasSize(1);
+		RecordingFilingPort.ButtonReply ask = telegram.buttonReplies.getFirst();
+		assertThat(ask.replyToMessageId()).isEqualTo(8L);
+		assertThat(ask.text()).isEqualTo(InboxFilingService.PICK_PROMPT);
+		assertThat(ask.buttons()).extracting(FilingCallbackButton::label).containsExactly("AI", "Fitness");
+		assertThat(ask.buttons()).extracting(FilingCallbackButton::callbackData)
+				.containsExactly("f6:8:0", "f6:8:1");
+		assertThat(ask.buttons()).noneMatch(b -> b.label().equals("Inbox") || b.label().equals("Smart Search"));
+	}
+
+	@Test
+	void themePickCallback_completesFilingLikeAutomaticPath() {
+		classifier.next = new ClassifierDecision.NeedsUserPick();
+		AcceptedDraft draft = new AcceptedDraft(
+				CHAT_ID,
+				8L,
+				INBOX_THREAD,
+				Optional.of("https://example.com/pick"),
+				"https://example.com/pick");
+		filing.file(draft, catalog);
+		telegram.buttonReplies.clear();
+
+		FilingResult result = filing.completeThemePick("cb-1", CHAT_ID, 8L, 1, catalog);
+
+		assertThat(result).isInstanceOf(FilingResult.Filed.class);
+		assertThat(((FilingResult.Filed) result).themeName()).isEqualTo("Fitness");
+		assertThat(savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://example.com/pick"))
+				.isPresent()
+				.get()
+				.extracting(SavedItem::themeName)
+				.isEqualTo("Fitness");
+		assertThat(telegram.copies).containsExactly(new RecordingFilingPort.Copy(CHAT_ID, 8L, 32L));
+		assertThat(telegram.replies).containsExactly(
+				new RecordingFilingPort.Reply(CHAT_ID, 8L, "Filed → Fitness"));
+		assertThat(telegram.answeredCallbacks).containsExactly("cb-1");
+	}
+
+	@Test
+	void forwardWithoutUrl_confident_filesChosenTheme() {
+		classifier.next = new ClassifierDecision.Confident("AI");
 		AcceptedDraft draft = new AcceptedDraft(
 				CHAT_ID,
 				8L,
@@ -126,7 +189,13 @@ class InboxFilingServiceTest {
 	}
 
 	@Test
-	void stubClassifier_neverPicksInboxOrSmartSearch() {
+	void classifier_neverOfferedInboxOrSmartSearchAsThemes() {
+		AtomicReference<List<String>> seenThemes = new AtomicReference<>();
+		TopicClassifier capturing = (text, themes) -> {
+			seenThemes.set(List.copyOf(themes));
+			return new ClassifierDecision.Confident(themes.getFirst());
+		};
+		filing = new InboxFilingService(savedItemStore, telegram, capturing);
 		AcceptedDraft draft = new AcceptedDraft(
 				CHAT_ID,
 				3L,
@@ -136,9 +205,9 @@ class InboxFilingServiceTest {
 
 		FilingResult result = filing.file(draft, catalog);
 
+		assertThat(seenThemes.get()).containsExactly("AI", "Fitness");
+		assertThat(seenThemes.get()).doesNotContain("Inbox", "Smart Search");
 		assertThat(((FilingResult.Filed) result).themeName()).isIn("AI", "Fitness");
-		assertThat(((FilingResult.Filed) result).themeName()).isNotEqualTo("Inbox");
-		assertThat(((FilingResult.Filed) result).themeName()).isNotEqualTo("Smart Search");
 	}
 
 	private static DataSource dataSource() {
@@ -150,9 +219,26 @@ class InboxFilingServiceTest {
 		return ds;
 	}
 
+	private static final class ScriptedClassifier implements TopicClassifier {
+		volatile ClassifierDecision next;
+		final AtomicInteger calls = new AtomicInteger();
+
+		ScriptedClassifier(ClassifierDecision next) {
+			this.next = next;
+		}
+
+		@Override
+		public ClassifierDecision classify(String draftText, List<String> themeNames) {
+			calls.incrementAndGet();
+			return next;
+		}
+	}
+
 	private static final class RecordingFilingPort implements FilingPort {
 		final List<Copy> copies = new ArrayList<>();
 		final List<Reply> replies = new ArrayList<>();
+		final List<ButtonReply> buttonReplies = new ArrayList<>();
+		final List<String> answeredCallbacks = new ArrayList<>();
 
 		@Override
 		public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
@@ -164,10 +250,24 @@ class InboxFilingServiceTest {
 			replies.add(new Reply(chatId, replyToMessageId, text));
 		}
 
+		@Override
+		public void replyWithCallbackButtons(
+				long chatId, long replyToMessageId, String text, List<FilingCallbackButton> buttons) {
+			buttonReplies.add(new ButtonReply(chatId, replyToMessageId, text, List.copyOf(buttons)));
+		}
+
+		@Override
+		public void answerCallbackQuery(String callbackQueryId) {
+			answeredCallbacks.add(callbackQueryId);
+		}
+
 		record Copy(long chatId, long fromMessageId, long messageThreadId) {
 		}
 
 		record Reply(long chatId, long replyToMessageId, String text) {
+		}
+
+		record ButtonReply(long chatId, long replyToMessageId, String text, List<FilingCallbackButton> buttons) {
 		}
 	}
 }

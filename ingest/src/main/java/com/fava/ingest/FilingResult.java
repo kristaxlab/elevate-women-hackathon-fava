@@ -12,4 +12,8 @@ public sealed interface FilingResult {
 
 	record AlreadyFiled(String themeName) implements FilingResult {
 	}
+
+	/** Low-confidence Classifier Decision: asked Participant to pick a Theme Topic; not persisted yet. */
+	record AwaitingThemePick() implements FilingResult {
+	}
 }

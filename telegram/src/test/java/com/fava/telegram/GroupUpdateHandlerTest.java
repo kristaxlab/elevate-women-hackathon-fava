@@ -11,8 +11,11 @@ import com.fava.catalog.DefaultCatalogSetupService;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
+import com.fava.classify.FirstThemeTopicClassifier;
+import com.fava.ingest.FilingCallbackButton;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
+import com.fava.ingest.ThemePickCallback;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -61,7 +64,7 @@ class GroupUpdateHandlerTest {
 		admins = new FakeAdminPort();
 		admins.adminIds.add(ADMIN_ID);
 		CatalogSetupService setup = new DefaultCatalogSetupService(store, forum);
-		InboxFilingService filing = new InboxFilingService(savedItems, outbound);
+		InboxFilingService filing = new InboxFilingService(savedItems, outbound, new FirstThemeTopicClassifier());
 		StaticMessageSource messages = messages();
 		handler = new GroupUpdateHandler(
 				messages,
@@ -217,6 +220,41 @@ class GroupUpdateHandlerTest {
 	}
 
 	@Test
+	void themePickCallback_completesFiling() {
+		seedConfiguredCatalog();
+		InboxFilingService filing = new InboxFilingService(
+				savedItems,
+				outbound,
+				(text, themes) -> new com.fava.classify.ClassifierDecision.NeedsUserPick());
+		handler = new GroupUpdateHandler(
+				messages(),
+				outbound,
+				store,
+				new DefaultCatalogSetupService(store, forum),
+				admins,
+				() -> BOT_ID,
+				new InboxMessageNormalizer(),
+				filing);
+
+		handler.handle(groupText(MEMBER_ID, "https://example.com/pick-me", List.of(), INBOX_THREAD));
+		assertThat(outbound.callbackReplies).hasSize(1);
+		assertThat(savedItems.byId).isEmpty();
+
+		String callbackData = ThemePickCallback.encode(5L, 1);
+		handler.handle(themePickCallback("cq-9", callbackData));
+
+		assertThat(savedItems.findByCatalogAndUrl(CHAT_ID, "https://example.com/pick-me"))
+				.isPresent()
+				.get()
+				.extracting(SavedItem::themeName)
+				.isEqualTo("Fitness");
+		assertThat(outbound.copies).containsExactly(new RecordingOutbound.Copy(CHAT_ID, 5L, FITNESS_THREAD));
+		assertThat(outbound.replies).containsExactly(
+				new RecordingOutbound.Reply(CHAT_ID, 5L, "Filed → Fitness"));
+		assertThat(outbound.answeredCallbacks).containsExactly("cq-9");
+	}
+
+	@Test
 	void privateChat_isIgnored() {
 		handler.handle(new TelegramUpdate(
 				1L,
@@ -289,6 +327,26 @@ class GroupUpdateHandlerTest {
 						null));
 	}
 
+	private static TelegramUpdate themePickCallback(String callbackId, String data) {
+		TelegramMessage message = new TelegramMessage(
+				99L,
+				new TelegramChat(CHAT_ID, "supergroup"),
+				new TelegramUser(MEMBER_ID, false, "u"),
+				"Which Theme Topic?",
+				List.of(),
+				INBOX_THREAD);
+		return new TelegramUpdate(
+				2L,
+				null,
+				null,
+				new TelegramCallbackQuery(
+						callbackId,
+						new TelegramUser(MEMBER_ID, false, "u"),
+						message,
+						"instance",
+						data));
+	}
+
 	private static TelegramMessageEntity botCommand(int offset, int length) {
 		return new TelegramMessageEntity("bot_command", offset, length);
 	}
@@ -297,6 +355,8 @@ class GroupUpdateHandlerTest {
 		final List<PlainSent> plainSent = new ArrayList<>();
 		final List<Reply> replies = new ArrayList<>();
 		final List<Copy> copies = new ArrayList<>();
+		final List<CallbackReply> callbackReplies = new ArrayList<>();
+		final List<String> answeredCallbacks = new ArrayList<>();
 
 		@Override
 		public void sendText(long chatId, String text) {
@@ -310,6 +370,26 @@ class GroupUpdateHandlerTest {
 		@Override
 		public void replyText(long chatId, long replyToMessageId, String text) {
 			replies.add(new Reply(chatId, replyToMessageId, text));
+		}
+
+		@Override
+		public void replyTextWithCallbackButtons(
+				long chatId, long replyToMessageId, String text, List<InlineCallbackButton> buttons) {
+			callbackReplies.add(new CallbackReply(chatId, replyToMessageId, text, List.copyOf(buttons)));
+		}
+
+		@Override
+		public void answerCallbackQuery(String callbackQueryId) {
+			answeredCallbacks.add(callbackQueryId);
+		}
+
+		@Override
+		public void replyWithCallbackButtons(
+				long chatId, long replyToMessageId, String text, List<FilingCallbackButton> buttons) {
+			List<InlineCallbackButton> mapped = buttons.stream()
+					.map(b -> new InlineCallbackButton(b.label(), b.callbackData()))
+					.toList();
+			replyTextWithCallbackButtons(chatId, replyToMessageId, text, mapped);
 		}
 
 		@Override
@@ -334,6 +414,9 @@ class GroupUpdateHandlerTest {
 		}
 
 		record Copy(long chatId, long fromMessageId, long messageThreadId) {
+		}
+
+		record CallbackReply(long chatId, long replyToMessageId, String text, List<InlineCallbackButton> buttons) {
 		}
 	}
 

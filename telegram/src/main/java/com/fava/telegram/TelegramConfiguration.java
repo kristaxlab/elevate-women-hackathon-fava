@@ -4,6 +4,7 @@ import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.DefaultCatalogSetupService;
 import com.fava.catalog.SavedItemStore;
+import com.fava.classify.TopicClassifier;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -32,8 +33,11 @@ public class TelegramConfiguration {
 	}
 
 	@Bean
-	InboxFilingService inboxFilingService(SavedItemStore savedItemStore, TelegramBotClient telegramBotClient) {
-		return new InboxFilingService(savedItemStore, telegramBotClient);
+	InboxFilingService inboxFilingService(
+			SavedItemStore savedItemStore,
+			TelegramBotClient telegramBotClient,
+			TopicClassifier topicClassifier) {
+		return new InboxFilingService(savedItemStore, telegramBotClient, topicClassifier);
 	}
 
 	@Bean

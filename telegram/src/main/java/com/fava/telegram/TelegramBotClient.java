@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fava.catalog.CatalogForumPort;
+import com.fava.ingest.FilingCallbackButton;
 import com.fava.ingest.FilingPort;
 import java.io.IOException;
 import java.net.URI;
@@ -167,7 +168,7 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 	@Override
 	public void sendTextWithInlineKeyboard(long chatId, String text, List<InlineUrlButton> buttons) {
 		List<List<InlineKeyboardButtonBody>> rows = buttons.stream()
-				.map(b -> List.of(new InlineKeyboardButtonBody(b.text(), b.url())))
+				.map(b -> List.of(InlineKeyboardButtonBody.url(b.text(), b.url())))
 				.toList();
 		sendMessage(chatId, text, null, new InlineKeyboardMarkup(rows));
 	}
@@ -175,6 +176,42 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 	@Override
 	public void replyText(long chatId, long replyToMessageId, String text) {
 		sendMessage(chatId, text, replyToMessageId, null);
+	}
+
+	@Override
+	public void replyTextWithCallbackButtons(
+			long chatId, long replyToMessageId, String text, List<InlineCallbackButton> buttons) {
+		List<List<InlineKeyboardButtonBody>> rows = buttons.stream()
+				.map(b -> List.of(InlineKeyboardButtonBody.callback(b.text(), b.callbackData())))
+				.toList();
+		sendMessage(chatId, text, replyToMessageId, new InlineKeyboardMarkup(rows));
+	}
+
+	@Override
+	public void replyWithCallbackButtons(
+			long chatId, long replyToMessageId, String text, List<FilingCallbackButton> buttons) {
+		List<InlineCallbackButton> mapped = buttons.stream()
+				.map(b -> new InlineCallbackButton(b.label(), b.callbackData()))
+				.toList();
+		replyTextWithCallbackButtons(chatId, replyToMessageId, text, mapped);
+	}
+
+	@Override
+	public void answerCallbackQuery(String callbackQueryId) {
+		try {
+			String body = objectMapper.writeValueAsString(new AnswerCallbackQueryBody(callbackQueryId));
+			HttpResponse<String> response = postJson("answerCallbackQuery", body);
+			if (response.statusCode() != 200) {
+				log.warn("answerCallbackQuery failed HTTP {}: {}", response.statusCode(), response.body());
+			}
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("answerCallbackQuery interrupted");
+		}
+		catch (IOException e) {
+			log.warn("answerCallbackQuery failed: {}", e.toString());
+		}
 	}
 
 	@Override
@@ -299,9 +336,24 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 			@JsonProperty("message_thread_id") long messageThreadId) {
 	}
 
+	private record AnswerCallbackQueryBody(@JsonProperty("callback_query_id") String callbackQueryId) {
+	}
+
 	private record InlineKeyboardMarkup(@JsonProperty("inline_keyboard") List<List<InlineKeyboardButtonBody>> inlineKeyboard) {
 	}
 
-	private record InlineKeyboardButtonBody(String text, String url) {
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	private record InlineKeyboardButtonBody(
+			String text,
+			String url,
+			@JsonProperty("callback_data") String callbackData) {
+
+		static InlineKeyboardButtonBody url(String text, String url) {
+			return new InlineKeyboardButtonBody(text, url, null);
+		}
+
+		static InlineKeyboardButtonBody callback(String text, String callbackData) {
+			return new InlineKeyboardButtonBody(text, null, callbackData);
+		}
 	}
 }

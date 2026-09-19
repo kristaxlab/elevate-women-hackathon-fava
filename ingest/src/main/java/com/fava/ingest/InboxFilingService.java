@@ -4,26 +4,36 @@ import com.fava.catalog.Catalog;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
+import com.fava.classify.ClassifierDecision;
+import com.fava.classify.TopicClassifier;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.IntStream;
 
 /**
- * Files an Accepted Inbox draft: URL dedupe, stub Classifier Decision, persist, copy, confirm.
- *
- * <p>Stub Classifier Decision: picks the first Theme Topic in {@link Catalog#themes()} order
- * (stable {@code ORDER BY id} from persistence). Never Inbox or Smart Search.
+ * Files an Accepted Inbox draft: URL dedupe, Classifier Decision, persist, copy, confirm;
+ * or ask for a Theme Topic pick when confidence is low, then complete Filing on callback.
  */
 public final class InboxFilingService {
 
 	static final String FILED_PREFIX = "Filed → ";
 	static final String ALREADY_PREFIX = "Already saved → ";
+	static final String PICK_PROMPT = "Which Theme Topic should I file this under?";
 
 	private final SavedItemStore savedItems;
 	private final FilingPort filingPort;
+	private final TopicClassifier topicClassifier;
 
-	public InboxFilingService(SavedItemStore savedItems, FilingPort filingPort) {
+	/** Pending drafts awaiting Theme Topic pick: key = chatId + ':' + sourceMessageId. */
+	private final Map<String, AcceptedDraft> pendingBySource = new ConcurrentHashMap<>();
+
+	public InboxFilingService(
+			SavedItemStore savedItems, FilingPort filingPort, TopicClassifier topicClassifier) {
 		this.savedItems = savedItems;
 		this.filingPort = filingPort;
+		this.topicClassifier = topicClassifier;
 	}
 
 	public FilingResult file(AcceptedDraft draft, Catalog catalog) {
@@ -36,7 +46,59 @@ public final class InboxFilingService {
 			}
 		}
 
-		ThemeTopic theme = pickTheme(catalog);
+		List<ThemeTopic> themes = catalog.themes();
+		if (themes.isEmpty()) {
+			throw new IllegalStateException("Catalog has no Theme Topics to file into");
+		}
+
+		List<String> themeNames = themes.stream().map(ThemeTopic::name).toList();
+		ClassifierDecision decision = topicClassifier.classify(draftText(draft), themeNames);
+
+		return switch (decision) {
+			case ClassifierDecision.Confident confident -> fileToTheme(draft, catalog, confident.themeName());
+			case ClassifierDecision.NeedsUserPick ignored -> askThemePick(draft, themes);
+		};
+	}
+
+	/**
+	 * Completes Filing after a Theme Topic inline-button pick. Answers the callback query.
+	 */
+	public FilingResult completeThemePick(
+			String callbackQueryId, long chatId, long sourceMessageId, int themeIndex, Catalog catalog) {
+		try {
+			AcceptedDraft draft = pendingBySource.remove(pendingKey(chatId, sourceMessageId));
+			if (draft == null) {
+				return new FilingResult.AwaitingThemePick();
+			}
+			List<ThemeTopic> themes = catalog.themes();
+			if (themeIndex < 0 || themeIndex >= themes.size()) {
+				pendingBySource.put(pendingKey(chatId, sourceMessageId), draft);
+				return new FilingResult.AwaitingThemePick();
+			}
+			return fileToTheme(draft, catalog, themes.get(themeIndex).name());
+		}
+		finally {
+			if (callbackQueryId != null && !callbackQueryId.isBlank()) {
+				filingPort.answerCallbackQuery(callbackQueryId);
+			}
+		}
+	}
+
+	private FilingResult askThemePick(AcceptedDraft draft, List<ThemeTopic> themes) {
+		pendingBySource.put(pendingKey(draft.chatId(), draft.sourceMessageId()), draft);
+		List<FilingCallbackButton> buttons = IntStream.range(0, themes.size())
+				.mapToObj(i -> new FilingCallbackButton(
+						themes.get(i).name(),
+						ThemePickCallback.encode(draft.sourceMessageId(), i)))
+				.toList();
+		filingPort.replyWithCallbackButtons(
+				draft.chatId(), draft.sourceMessageId(), PICK_PROMPT, buttons);
+		return new FilingResult.AwaitingThemePick();
+	}
+
+	private FilingResult fileToTheme(AcceptedDraft draft, Catalog catalog, String themeName) {
+		ThemeTopic theme = findTheme(catalog, themeName)
+				.orElseThrow(() -> new IllegalStateException("Unknown Theme Topic: " + themeName));
 		SavedItem saved = savedItems.save(new SavedItem(
 				null,
 				catalog.chatId(),
@@ -49,14 +111,20 @@ public final class InboxFilingService {
 		return new FilingResult.Filed(theme.name(), saved);
 	}
 
-	/**
-	 * Deterministic stub: first Theme Topic in catalog order.
-	 */
-	static ThemeTopic pickTheme(Catalog catalog) {
-		List<ThemeTopic> themes = catalog.themes();
-		if (themes.isEmpty()) {
-			throw new IllegalStateException("Catalog has no Theme Topics to file into");
+	private static Optional<ThemeTopic> findTheme(Catalog catalog, String themeName) {
+		return catalog.themes().stream()
+				.filter(t -> t.name().equals(themeName))
+				.findFirst();
+	}
+
+	private static String draftText(AcceptedDraft draft) {
+		if (draft.url().isPresent()) {
+			return draft.bodyText() + "\nURL: " + draft.url().get();
 		}
-		return themes.getFirst();
+		return draft.bodyText();
+	}
+
+	private static String pendingKey(long chatId, long sourceMessageId) {
+		return chatId + ":" + sourceMessageId;
 	}
 }
