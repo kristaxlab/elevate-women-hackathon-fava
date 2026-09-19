@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fava.catalog.CatalogForumPort;
+import com.fava.ingest.FilingPort;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,7 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Thin Bot API client using JDK HttpClient (long-poll getUpdates + messaging + forum/admin helpers).
  */
-final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, ChatAdminPort {
+final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, ChatAdminPort, FilingPort {
 
 	private static final Logger log = LoggerFactory.getLogger(TelegramBotClient.class);
 	private static final String API_BASE = "https://api.telegram.org/bot";
@@ -168,12 +169,47 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 		List<List<InlineKeyboardButtonBody>> rows = buttons.stream()
 				.map(b -> List.of(new InlineKeyboardButtonBody(b.text(), b.url())))
 				.toList();
-		sendMessage(chatId, text, new InlineKeyboardMarkup(rows));
+		sendMessage(chatId, text, null, new InlineKeyboardMarkup(rows));
 	}
 
-	private void sendMessage(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
+	@Override
+	public void replyText(long chatId, long replyToMessageId, String text) {
+		sendMessage(chatId, text, replyToMessageId, null);
+	}
+
+	@Override
+	public void replyToMessage(long chatId, long replyToMessageId, String text) {
+		replyText(chatId, replyToMessageId, text);
+	}
+
+	@Override
+	public void copyMessage(long chatId, long fromMessageId, long toMessageThreadId) {
+		copyMessageToThread(chatId, fromMessageId, toMessageThreadId);
+	}
+
+	@Override
+	public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
 		try {
-			String body = objectMapper.writeValueAsString(new SendMessageBody(chatId, text, replyMarkup));
+			String body = objectMapper.writeValueAsString(
+					new CopyMessageBody(chatId, chatId, fromMessageId, messageThreadId));
+			HttpResponse<String> response = postJson("copyMessage", body);
+			if (response.statusCode() != 200) {
+				log.warn("copyMessage failed HTTP {}: {}", response.statusCode(), response.body());
+			}
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("copyMessage interrupted for chat {}", chatId);
+		}
+		catch (IOException e) {
+			log.warn("copyMessage failed for chat {}: {}", chatId, e.toString());
+		}
+	}
+
+	private void sendMessage(long chatId, String text, Long replyToMessageId, InlineKeyboardMarkup replyMarkup) {
+		try {
+			String body = objectMapper.writeValueAsString(
+					new SendMessageBody(chatId, text, replyToMessageId, replyMarkup));
 			HttpResponse<String> response = postJson("sendMessage", body);
 			if (response.statusCode() != 200) {
 				log.warn("sendMessage failed HTTP {}: {}", response.statusCode(), response.body());
@@ -186,6 +222,10 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 		catch (IOException e) {
 			log.warn("sendMessage failed for chat {}: {}", chatId, e.toString());
 		}
+	}
+
+	private void sendMessage(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
+		sendMessage(chatId, text, null, replyMarkup);
 	}
 
 	private HttpResponse<String> postJson(String method, String body) throws IOException, InterruptedException {
@@ -246,7 +286,17 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 	private record SendMessageBody(
 			@JsonProperty("chat_id") long chatId,
 			String text,
+			@JsonProperty("reply_to_message_id") Long replyToMessageId,
 			@JsonProperty("reply_markup") InlineKeyboardMarkup replyMarkup) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	private record CopyMessageBody(
+			@JsonProperty("chat_id") long chatId,
+			@JsonProperty("from_chat_id") long fromChatId,
+			@JsonProperty("message_id") long messageId,
+			@JsonProperty("message_thread_id") long messageThreadId) {
 	}
 
 	private record InlineKeyboardMarkup(@JsonProperty("inline_keyboard") List<List<InlineKeyboardButtonBody>> inlineKeyboard) {

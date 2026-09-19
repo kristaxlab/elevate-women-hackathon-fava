@@ -134,6 +134,14 @@ class DmUpdateHandlerTest {
 			keyboardSent.add(new KeyboardSent(chatId, text, List.copyOf(buttons)));
 		}
 
+		@Override
+		public void replyText(long chatId, long replyToMessageId, String text) {
+		}
+
+		@Override
+		public void copyMessage(long chatId, long fromMessageId, long toMessageThreadId) {
+		}
+
 		record PlainSent(long chatId, String text) {
 		}
 

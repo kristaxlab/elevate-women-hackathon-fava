@@ -31,5 +31,21 @@ public final class CatalogSchema {
 					UNIQUE (chat_id, thread_id)
 				)
 				""");
+		jdbc.execute("""
+				CREATE TABLE IF NOT EXISTS saved_items (
+					id BIGSERIAL PRIMARY KEY,
+					chat_id BIGINT NOT NULL REFERENCES catalogs (chat_id) ON DELETE CASCADE,
+					url TEXT,
+					body_text TEXT NOT NULL,
+					theme_name TEXT NOT NULL,
+					source_message_id BIGINT NOT NULL,
+					created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+				)
+				""");
+		jdbc.execute("""
+				CREATE UNIQUE INDEX IF NOT EXISTS saved_items_chat_url_uidx
+				ON saved_items (chat_id, url)
+				WHERE url IS NOT NULL
+				""");
 	}
 }

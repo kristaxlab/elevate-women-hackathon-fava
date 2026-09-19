@@ -5,19 +5,25 @@ import com.fava.catalog.CatalogSetupResult;
 import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.ThemeTopic;
+import com.fava.ingest.AcceptedDraft;
+import com.fava.ingest.InboxFilingService;
+import com.fava.ingest.InboxMessageNormalizer;
+import com.fava.ingest.NormalizeResult;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
 
 /**
- * Routes group/supergroup updates for Catalog Setup:
+ * Routes group/supergroup updates for Catalog Setup and Inbox ingest:
  * <ul>
  *   <li>{@code my_chat_member} when Fava becomes admin → nudge toward Topics + {@code /setup}</li>
  *   <li>{@code /setup} with themes on the same message (e.g. {@code /setup AI, Fitness}), or
  *       {@code /setup} alone then the next message from the same admin with the theme list</li>
+ *   <li>Messages in a configured Catalog's Inbox thread → normalize, file (or reject)</li>
  *   <li>Non-command messages in an unconfigured group → prompt admins to run {@code /setup}</li>
  * </ul>
  * Private chats are ignored (see {@link DmUpdateHandler}).
@@ -39,6 +45,8 @@ public final class GroupUpdateHandler {
 	private final CatalogSetupService setupService;
 	private final ChatAdminPort chatAdminPort;
 	private final Supplier<Long> botUserId;
+	private final InboxMessageNormalizer inboxNormalizer;
+	private final InboxFilingService inboxFiling;
 
 	/** chatId → userId awaiting theme list after bare {@code /setup}. */
 	private final Map<Long, Long> pendingThemeListByChat = new ConcurrentHashMap<>();
@@ -49,13 +57,17 @@ public final class GroupUpdateHandler {
 			CatalogStore catalogStore,
 			CatalogSetupService setupService,
 			ChatAdminPort chatAdminPort,
-			Supplier<Long> botUserId) {
+			Supplier<Long> botUserId,
+			InboxMessageNormalizer inboxNormalizer,
+			InboxFilingService inboxFiling) {
 		this.messages = messages;
 		this.outbound = outbound;
 		this.catalogStore = catalogStore;
 		this.setupService = setupService;
 		this.chatAdminPort = chatAdminPort;
 		this.botUserId = botUserId;
+		this.inboxNormalizer = inboxNormalizer;
+		this.inboxFiling = inboxFiling;
 	}
 
 	public void handle(TelegramUpdate update) {
@@ -122,9 +134,31 @@ public final class GroupUpdateHandler {
 			return;
 		}
 
-		if (text != null && !text.isBlank() && !catalogStore.isConfigured(chatId)) {
+		Optional<Catalog> configured = catalogStore.findByChatId(chatId);
+		if (configured.isPresent()) {
+			Catalog catalog = configured.get();
+			if (message.messageThreadId() != null && message.messageThreadId() == catalog.inboxThreadId()) {
+				handleInboxMessage(message, catalog);
+			}
+			return;
+		}
+
+		if (text != null && !text.isBlank()) {
 			outbound.sendText(chatId, msg(MSG_PRE_SETUP));
 		}
+	}
+
+	private void handleInboxMessage(TelegramMessage message, Catalog catalog) {
+		NormalizeResult normalized = inboxNormalizer.normalize(InboxMessageFactsMapper.from(message));
+		switch (normalized) {
+			case NormalizeResult.Rejected rejected ->
+					outbound.replyText(message.chat().id(), message.messageId(), rejected.reason());
+			case NormalizeResult.Accepted accepted -> fileAccepted(accepted.draft(), catalog);
+		}
+	}
+
+	private void fileAccepted(AcceptedDraft draft, Catalog catalog) {
+		inboxFiling.file(draft, catalog);
 	}
 
 	private void handleSetupCommand(TelegramMessage message) {

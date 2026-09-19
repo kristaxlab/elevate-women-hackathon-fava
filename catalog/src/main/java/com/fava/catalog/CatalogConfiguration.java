@@ -12,4 +12,10 @@ public class CatalogConfiguration {
 		CatalogSchema.ensure(dataSource);
 		return new JdbcCatalogStore(dataSource);
 	}
+
+	@Bean
+	SavedItemStore savedItemStore(DataSource dataSource) {
+		CatalogSchema.ensure(dataSource);
+		return new JdbcSavedItemStore(dataSource);
+	}
 }

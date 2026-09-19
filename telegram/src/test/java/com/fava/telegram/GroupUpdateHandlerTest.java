@@ -8,7 +8,11 @@ import com.fava.catalog.CatalogForumPort;
 import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.DefaultCatalogSetupService;
+import com.fava.catalog.SavedItem;
+import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
+import com.fava.ingest.InboxFilingService;
+import com.fava.ingest.InboxMessageNormalizer;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +30,10 @@ class GroupUpdateHandlerTest {
 	private static final long CHAT_ID = -100555L;
 	private static final long ADMIN_ID = 42L;
 	private static final long MEMBER_ID = 77L;
+	private static final long INBOX_THREAD = 11L;
+	private static final long SMART_SEARCH_THREAD = 22L;
+	private static final long AI_THREAD = 31L;
+	private static final long FITNESS_THREAD = 32L;
 
 	private static final String NUDGE = "Nudge: enable Topics then /setup";
 	private static final String NEEDS_FORUM = "Checklist: turn on Topics";
@@ -38,6 +46,7 @@ class GroupUpdateHandlerTest {
 
 	private RecordingOutbound outbound;
 	private FakeCatalogStore store;
+	private FakeSavedItemStore savedItems;
 	private FakeForumPort forum;
 	private FakeAdminPort admins;
 	private GroupUpdateHandler handler;
@@ -46,13 +55,23 @@ class GroupUpdateHandlerTest {
 	void setUp() {
 		outbound = new RecordingOutbound();
 		store = new FakeCatalogStore();
+		savedItems = new FakeSavedItemStore();
 		forum = new FakeForumPort();
 		forum.forum = true;
 		admins = new FakeAdminPort();
 		admins.adminIds.add(ADMIN_ID);
 		CatalogSetupService setup = new DefaultCatalogSetupService(store, forum);
+		InboxFilingService filing = new InboxFilingService(savedItems, outbound);
 		StaticMessageSource messages = messages();
-		handler = new GroupUpdateHandler(messages, outbound, store, setup, admins, () -> BOT_ID);
+		handler = new GroupUpdateHandler(
+				messages,
+				outbound,
+				store,
+				setup,
+				admins,
+				() -> BOT_ID,
+				new InboxMessageNormalizer(),
+				filing);
 	}
 
 	@Test
@@ -71,7 +90,7 @@ class GroupUpdateHandlerTest {
 
 	@Test
 	void setupByNonAdmin_isRejected() {
-		handler.handle(groupText(MEMBER_ID, "/setup AI, Fitness", List.of(botCommand(0, 6))));
+		handler.handle(groupText(MEMBER_ID, "/setup AI, Fitness", List.of(botCommand(0, 6)), null));
 
 		assertThat(outbound.plainSent).containsExactly(new RecordingOutbound.PlainSent(CHAT_ID, NOT_ADMIN));
 		assertThat(store.isConfigured(CHAT_ID)).isFalse();
@@ -80,7 +99,7 @@ class GroupUpdateHandlerTest {
 
 	@Test
 	void setupWithThemesOnSameLine_createsTopicsAndPersists() {
-		handler.handle(groupText(ADMIN_ID, "/setup AI, Fitness", List.of(botCommand(0, 6))));
+		handler.handle(groupText(ADMIN_ID, "/setup AI, Fitness", List.of(botCommand(0, 6)), null));
 
 		assertThat(store.isConfigured(CHAT_ID)).isTrue();
 		assertThat(forum.createdNames).containsExactly("Inbox", "Smart Search", "AI", "Fitness");
@@ -90,10 +109,10 @@ class GroupUpdateHandlerTest {
 
 	@Test
 	void setupBareThenThemeListOnNextMessage_completesSetup() {
-		handler.handle(groupText(ADMIN_ID, "/setup", List.of(botCommand(0, 6))));
+		handler.handle(groupText(ADMIN_ID, "/setup", List.of(botCommand(0, 6)), null));
 		assertThat(outbound.plainSent).containsExactly(new RecordingOutbound.PlainSent(CHAT_ID, ASK_THEMES));
 
-		handler.handle(groupText(ADMIN_ID, "AI\nFitness", List.of()));
+		handler.handle(groupText(ADMIN_ID, "AI\nFitness", List.of(), null));
 
 		assertThat(store.isConfigured(CHAT_ID)).isTrue();
 		assertThat(forum.createdNames).containsExactly("Inbox", "Smart Search", "AI", "Fitness");
@@ -103,7 +122,7 @@ class GroupUpdateHandlerTest {
 	void setupWhenNotForum_sendsChecklistWithoutPersisting() {
 		forum.forum = false;
 
-		handler.handle(groupText(ADMIN_ID, "/setup AI", List.of(botCommand(0, 6))));
+		handler.handle(groupText(ADMIN_ID, "/setup AI", List.of(botCommand(0, 6)), null));
 
 		assertThat(outbound.plainSent).containsExactly(new RecordingOutbound.PlainSent(CHAT_ID, NEEDS_FORUM));
 		assertThat(store.isConfigured(CHAT_ID)).isFalse();
@@ -112,11 +131,11 @@ class GroupUpdateHandlerTest {
 
 	@Test
 	void secondSetup_isRejected() {
-		handler.handle(groupText(ADMIN_ID, "/setup AI", List.of(botCommand(0, 6))));
+		handler.handle(groupText(ADMIN_ID, "/setup AI", List.of(botCommand(0, 6)), null));
 		outbound.plainSent.clear();
 		forum.createdNames.clear();
 
-		handler.handle(groupText(ADMIN_ID, "/setup Other", List.of(botCommand(0, 6))));
+		handler.handle(groupText(ADMIN_ID, "/setup Other", List.of(botCommand(0, 6)), null));
 
 		assertThat(outbound.plainSent).containsExactly(new RecordingOutbound.PlainSent(CHAT_ID, ALREADY));
 		assertThat(forum.createdNames).isEmpty();
@@ -124,18 +143,77 @@ class GroupUpdateHandlerTest {
 
 	@Test
 	void unconfiguredGroupMessage_promptsForSetup() {
-		handler.handle(groupText(MEMBER_ID, "where is search?", List.of()));
+		handler.handle(groupText(MEMBER_ID, "where is search?", List.of(), null));
 
 		assertThat(outbound.plainSent).containsExactly(new RecordingOutbound.PlainSent(CHAT_ID, PRE_SETUP));
 	}
 
 	@Test
-	void configuredGroupNonSetupMessage_isSilent() {
-		store.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
+	void configuredGroupNonInboxMessage_isSilent() {
+		seedConfiguredCatalog();
 
-		handler.handle(groupText(MEMBER_ID, "hello", List.of()));
+		handler.handle(groupText(MEMBER_ID, "hello", List.of(), FITNESS_THREAD));
 
 		assertThat(outbound.plainSent).isEmpty();
+		assertThat(outbound.replies).isEmpty();
+		assertThat(outbound.copies).isEmpty();
+	}
+
+	@Test
+	void inboxUrl_isFiledIntoFirstThemeWithConfirmation() {
+		seedConfiguredCatalog();
+
+		handler.handle(groupText(
+				MEMBER_ID,
+				"https://www.instagram.com/p/XYZ/",
+				List.of(),
+				INBOX_THREAD));
+
+		assertThat(savedItems.findByCatalogAndUrl(CHAT_ID, "https://www.instagram.com/p/XYZ/")).isPresent();
+		assertThat(outbound.copies).containsExactly(new RecordingOutbound.Copy(CHAT_ID, 5L, AI_THREAD));
+		assertThat(outbound.replies).containsExactly(
+				new RecordingOutbound.Reply(CHAT_ID, 5L, "Filed → AI"));
+	}
+
+	@Test
+	void inboxUnsupported_getsRejectionReply() {
+		seedConfiguredCatalog();
+
+		handler.handle(groupText(MEMBER_ID, "just a note", List.of(), INBOX_THREAD));
+
+		assertThat(outbound.copies).isEmpty();
+		assertThat(outbound.replies).hasSize(1);
+		assertThat(outbound.replies.getFirst().text()).contains("http");
+		assertThat(savedItems.byId).isEmpty();
+	}
+
+	@Test
+	void inboxForwardWithoutUrl_isAcceptedAndFiled() {
+		seedConfiguredCatalog();
+
+		handler.handle(groupForward(MEMBER_ID, "Channel tip about form", INBOX_THREAD));
+
+		assertThat(outbound.copies).containsExactly(new RecordingOutbound.Copy(CHAT_ID, 5L, AI_THREAD));
+		assertThat(outbound.replies).containsExactly(
+				new RecordingOutbound.Reply(CHAT_ID, 5L, "Filed → AI"));
+	}
+
+	@Test
+	void inboxDuplicateUrl_reportsExistingThemeWithoutCopy() {
+		seedConfiguredCatalog();
+		savedItems.save(new SavedItem(
+				null,
+				CHAT_ID,
+				Optional.of("https://dup.example/a"),
+				"first",
+				"Fitness",
+				1L));
+
+		handler.handle(groupText(MEMBER_ID, "https://dup.example/a", List.of(), INBOX_THREAD));
+
+		assertThat(outbound.copies).isEmpty();
+		assertThat(outbound.replies).containsExactly(
+				new RecordingOutbound.Reply(CHAT_ID, 5L, "Already saved → Fitness"));
 	}
 
 	@Test
@@ -146,6 +224,14 @@ class GroupUpdateHandlerTest {
 						"/setup AI", List.of(botCommand(0, 6)), null)));
 
 		assertThat(outbound.plainSent).isEmpty();
+	}
+
+	private void seedConfiguredCatalog() {
+		store.create(new Catalog(
+				CHAT_ID,
+				INBOX_THREAD,
+				SMART_SEARCH_THREAD,
+				List.of(new ThemeTopic("AI", AI_THREAD), new ThemeTopic("Fitness", FITNESS_THREAD))));
 	}
 
 	private static StaticMessageSource messages() {
@@ -173,7 +259,8 @@ class GroupUpdateHandlerTest {
 						new TelegramChatMember(bot, newStatus)));
 	}
 
-	private static TelegramUpdate groupText(long fromId, String text, List<TelegramMessageEntity> entities) {
+	private static TelegramUpdate groupText(
+			long fromId, String text, List<TelegramMessageEntity> entities, Long threadId) {
 		return new TelegramUpdate(
 				1L,
 				new TelegramMessage(
@@ -182,6 +269,23 @@ class GroupUpdateHandlerTest {
 						new TelegramUser(fromId, false, "u"),
 						text,
 						entities,
+						threadId));
+	}
+
+	private static TelegramUpdate groupForward(long fromId, String text, long threadId) {
+		return new TelegramUpdate(
+				1L,
+				new TelegramMessage(
+						5L,
+						new TelegramChat(CHAT_ID, "supergroup"),
+						new TelegramUser(fromId, false, "u"),
+						text,
+						null,
+						List.of(),
+						null,
+						threadId,
+						1_700_000_000,
+						new TelegramUser(999L, false, "channel_author"),
 						null));
 	}
 
@@ -189,8 +293,10 @@ class GroupUpdateHandlerTest {
 		return new TelegramMessageEntity("bot_command", offset, length);
 	}
 
-	private static final class RecordingOutbound implements TelegramOutbound {
+	private static final class RecordingOutbound implements TelegramOutbound, com.fava.ingest.FilingPort {
 		final List<PlainSent> plainSent = new ArrayList<>();
+		final List<Reply> replies = new ArrayList<>();
+		final List<Copy> copies = new ArrayList<>();
 
 		@Override
 		public void sendText(long chatId, String text) {
@@ -201,7 +307,33 @@ class GroupUpdateHandlerTest {
 		public void sendTextWithInlineKeyboard(long chatId, String text, List<InlineUrlButton> buttons) {
 		}
 
+		@Override
+		public void replyText(long chatId, long replyToMessageId, String text) {
+			replies.add(new Reply(chatId, replyToMessageId, text));
+		}
+
+		@Override
+		public void copyMessage(long chatId, long fromMessageId, long toMessageThreadId) {
+			copyMessageToThread(chatId, fromMessageId, toMessageThreadId);
+		}
+
+		@Override
+		public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
+			copies.add(new Copy(chatId, fromMessageId, messageThreadId));
+		}
+
+		@Override
+		public void replyToMessage(long chatId, long replyToMessageId, String text) {
+			replyText(chatId, replyToMessageId, text);
+		}
+
 		record PlainSent(long chatId, String text) {
+		}
+
+		record Reply(long chatId, long replyToMessageId, String text) {
+		}
+
+		record Copy(long chatId, long fromMessageId, long messageThreadId) {
 		}
 	}
 
@@ -251,6 +383,36 @@ class GroupUpdateHandlerTest {
 		@Override
 		public boolean isConfigured(long chatId) {
 			return byChat.containsKey(chatId);
+		}
+	}
+
+	private static final class FakeSavedItemStore implements SavedItemStore {
+		final Map<Long, SavedItem> byId = new LinkedHashMap<>();
+		private final AtomicLong nextId = new AtomicLong(1);
+
+		@Override
+		public SavedItem save(SavedItem item) {
+			SavedItem stored = new SavedItem(
+					nextId.getAndIncrement(),
+					item.chatId(),
+					item.url(),
+					item.bodyText(),
+					item.themeName(),
+					item.sourceMessageId());
+			byId.put(stored.id(), stored);
+			return stored;
+		}
+
+		@Override
+		public Optional<SavedItem> findByCatalogAndUrl(long chatId, String url) {
+			return byId.values().stream()
+					.filter(i -> i.chatId() == chatId && i.url().isPresent() && i.url().get().equals(url))
+					.findFirst();
+		}
+
+		@Override
+		public Optional<SavedItem> findById(long id) {
+			return Optional.ofNullable(byId.get(id));
 		}
 	}
 }
