@@ -28,13 +28,14 @@ public final class InboxFilingService {
 	private final FilingPort filingPort;
 	private final TopicClassifier topicClassifier;
 	private final SavedItemIndexer savedItemIndexer;
+	private final SavedItemEnricher savedItemEnricher;
 
 	/** Pending drafts awaiting Theme Topic pick: key = chatId + ':' + sourceMessageId. */
 	private final Map<String, AcceptedDraft> pendingBySource = new ConcurrentHashMap<>();
 
 	public InboxFilingService(
 			SavedItemStore savedItems, FilingPort filingPort, TopicClassifier topicClassifier) {
-		this(savedItems, filingPort, topicClassifier, item -> {});
+		this(savedItems, filingPort, topicClassifier, item -> {}, new HeuristicSavedItemEnricher());
 	}
 
 	public InboxFilingService(
@@ -42,10 +43,20 @@ public final class InboxFilingService {
 			FilingPort filingPort,
 			TopicClassifier topicClassifier,
 			SavedItemIndexer savedItemIndexer) {
+		this(savedItems, filingPort, topicClassifier, savedItemIndexer, new HeuristicSavedItemEnricher());
+	}
+
+	public InboxFilingService(
+			SavedItemStore savedItems,
+			FilingPort filingPort,
+			TopicClassifier topicClassifier,
+			SavedItemIndexer savedItemIndexer,
+			SavedItemEnricher savedItemEnricher) {
 		this.savedItems = savedItems;
 		this.filingPort = filingPort;
 		this.topicClassifier = topicClassifier;
 		this.savedItemIndexer = savedItemIndexer;
+		this.savedItemEnricher = savedItemEnricher;
 	}
 
 	public FilingResult file(AcceptedDraft draft, Catalog catalog) {
@@ -111,13 +122,21 @@ public final class InboxFilingService {
 	private FilingResult fileToTheme(AcceptedDraft draft, Catalog catalog, String themeName) {
 		ThemeTopic theme = findTheme(catalog, themeName)
 				.orElseThrow(() -> new IllegalStateException("Unknown Theme Topic: " + themeName));
-		SavedItem saved = savedItems.save(SavedItem.of(
+		SavedItemEnrichment enrichment = enrichSafely(draft);
+		SavedItem saved = savedItems.save(new SavedItem(
 				null,
 				catalog.chatId(),
 				draft.url(),
 				draft.bodyText(),
 				theme.name(),
-				draft.sourceMessageId()));
+				draft.sourceMessageId(),
+				Optional.empty(),
+				Optional.empty(),
+				enrichment.sourceType(),
+				enrichment.title(),
+				enrichment.recommendedBy(),
+				enrichment.tags(),
+				enrichment.searchText()));
 		Optional<Long> copyMessageId =
 				filingPort.copyMessageToThread(catalog.chatId(), draft.sourceMessageId(), theme.threadId());
 		if (copyMessageId.isPresent()) {
@@ -127,6 +146,15 @@ public final class InboxFilingService {
 		savedItemIndexer.index(saved);
 		filingPort.replyToMessage(draft.chatId(), draft.sourceMessageId(), FILED_PREFIX + theme.name());
 		return new FilingResult.Filed(theme.name(), saved);
+	}
+
+	private SavedItemEnrichment enrichSafely(AcceptedDraft draft) {
+		try {
+			return savedItemEnricher.enrich(draft.url(), draft.bodyText());
+		}
+		catch (RuntimeException e) {
+			return SavedItemEnrichment.empty();
+		}
 	}
 
 	private static Optional<ThemeTopic> findTheme(Catalog catalog, String themeName) {

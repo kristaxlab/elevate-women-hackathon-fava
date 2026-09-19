@@ -9,6 +9,7 @@ import com.fava.catalog.JdbcCatalogStore;
 import com.fava.catalog.JdbcSavedItemStore;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemStore;
+import com.fava.catalog.SourceType;
 import com.fava.catalog.ThemeTopic;
 import com.fava.classify.ClassifierDecision;
 import com.fava.classify.TopicClassifier;
@@ -114,6 +115,58 @@ class InboxFilingServiceTest {
 		assertThat(stored.userLibItemId()).isEmpty();
 		assertThat(telegram.replies).containsExactly(
 				new RecordingFilingPort.Reply(CHAT_ID, 11L, "Filed → AI"));
+	}
+
+	@Test
+	void confidentDecision_whenEnricherSucceeds_persistsEnrichmentFields() {
+		classifier.next = new ClassifierDecision.Confident("AI");
+		SavedItemEnricher enricher = (url, body) -> new SavedItemEnrichment(
+				Optional.of(SourceType.RECIPE),
+				Optional.of("Soup"),
+				Optional.of("Mia"),
+				List.of("comfort"),
+				Optional.of("Comfort soup recipe from Mia"));
+		filing = new InboxFilingService(savedItemStore, telegram, classifier, item -> {}, enricher);
+		AcceptedDraft draft = new AcceptedDraft(
+				CHAT_ID,
+				21L,
+				INBOX_THREAD,
+				Optional.of("https://example.com/soup"),
+				"try this soup");
+
+		FilingResult result = filing.file(draft, catalog);
+
+		assertThat(result).isInstanceOf(FilingResult.Filed.class);
+		SavedItem stored = savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://example.com/soup").orElseThrow();
+		assertThat(stored.sourceType()).contains(SourceType.RECIPE);
+		assertThat(stored.title()).contains("Soup");
+		assertThat(stored.recommendedBy()).contains("Mia");
+		assertThat(stored.tags()).containsExactly("comfort");
+		assertThat(stored.searchText()).contains("Comfort soup recipe from Mia");
+	}
+
+	@Test
+	void confidentDecision_whenEnricherThrows_stillFilesWithoutEnrichment() {
+		classifier.next = new ClassifierDecision.Confident("Fitness");
+		SavedItemEnricher boom = (url, body) -> {
+			throw new IllegalStateException("enricher down");
+		};
+		filing = new InboxFilingService(savedItemStore, telegram, classifier, item -> {}, boom);
+		AcceptedDraft draft = new AcceptedDraft(
+				CHAT_ID,
+				22L,
+				INBOX_THREAD,
+				Optional.of("https://example.com/still"),
+				"still save me");
+
+		FilingResult result = filing.file(draft, catalog);
+
+		assertThat(result).isInstanceOf(FilingResult.Filed.class);
+		SavedItem stored = savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://example.com/still").orElseThrow();
+		assertThat(stored.sourceType()).isEmpty();
+		assertThat(stored.searchText()).isEmpty();
+		assertThat(telegram.replies).containsExactly(
+				new RecordingFilingPort.Reply(CHAT_ID, 22L, "Filed → Fitness"));
 	}
 
 	@Test

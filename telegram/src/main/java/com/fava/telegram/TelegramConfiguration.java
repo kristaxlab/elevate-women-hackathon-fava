@@ -5,9 +5,15 @@ import com.fava.catalog.CatalogStore;
 import com.fava.catalog.DefaultCatalogSetupService;
 import com.fava.catalog.SavedItemIndexer;
 import com.fava.catalog.SavedItemStore;
+import com.fava.classify.ChatModelPort;
+import com.fava.classify.OpenAiCompatibleChatModel;
+import com.fava.classify.OpenRouterProperties;
 import com.fava.classify.TopicClassifier;
+import com.fava.ingest.ChatSavedItemEnricher;
+import com.fava.ingest.HeuristicSavedItemEnricher;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
+import com.fava.ingest.SavedItemEnricher;
 import com.fava.intent.IntentRouter;
 import com.fava.intent.ParticipantNotifyPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -17,7 +23,7 @@ import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.ObjectMapper;
 
 @Configuration
-@EnableConfigurationProperties(TelegramProperties.class)
+@EnableConfigurationProperties({TelegramProperties.class, OpenRouterProperties.class})
 public class TelegramConfiguration {
 
 	@Bean
@@ -40,8 +46,23 @@ public class TelegramConfiguration {
 			SavedItemStore savedItemStore,
 			TelegramBotClient telegramBotClient,
 			TopicClassifier topicClassifier,
-			SavedItemIndexer savedItemIndexer) {
-		return new InboxFilingService(savedItemStore, telegramBotClient, topicClassifier, savedItemIndexer);
+			SavedItemIndexer savedItemIndexer,
+			SavedItemEnricher savedItemEnricher) {
+		return new InboxFilingService(
+				savedItemStore, telegramBotClient, topicClassifier, savedItemIndexer, savedItemEnricher);
+	}
+
+	@Bean
+	SavedItemEnricher savedItemEnricher(OpenRouterProperties properties, ObjectMapper objectMapper) {
+		if (!properties.hasApiKey()) {
+			return new HeuristicSavedItemEnricher();
+		}
+		ChatModelPort chat = new OpenAiCompatibleChatModel(
+				properties.apiKey(),
+				properties.baseUrl(),
+				properties.chatModel(),
+				objectMapper);
+		return new ChatSavedItemEnricher(chat);
 	}
 
 	@Bean

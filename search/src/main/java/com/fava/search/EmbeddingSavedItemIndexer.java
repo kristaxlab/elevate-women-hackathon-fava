@@ -8,7 +8,7 @@ import com.fava.catalog.SavedItemIndexer;
 import com.fava.classify.EmbeddingPort;
 
 /**
- * Embeds a Saved Item (body + URL when present) and upserts into the Catalog embedding store.
+ * Embeds a Saved Item using English {@code search_text} when present, otherwise body + URL.
  */
 public final class EmbeddingSavedItemIndexer implements SavedItemIndexer {
 
@@ -47,8 +47,8 @@ public final class EmbeddingSavedItemIndexer implements SavedItemIndexer {
 	}
 
 	static String indexText(SavedItem item) {
-		if (item.url().isPresent()) {
-			return item.bodyText() + "\nURL: " + item.url().get();
+		if (item.searchText().isPresent() && !item.searchText().get().isBlank()) {
+			return item.searchText().get().trim();
 		}
 		return item.bodyText();
 	}

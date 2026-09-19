@@ -22,6 +22,7 @@ import com.fava.classify.EmbeddingPort;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,7 @@ class EmbeddingSavedItemIndexerTest {
 
 	private SavedItemStore savedItems;
 	private SavedItemEmbeddingStore embeddings;
+	private EmbeddingModelRegistry registry;
 	private EmbeddingSavedItemIndexer indexer;
 
 	@BeforeEach
@@ -57,7 +59,7 @@ class EmbeddingSavedItemIndexerTest {
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
-		EmbeddingModelRegistry registry = new JdbcEmbeddingModelRegistry(dataSource);
+		registry = new JdbcEmbeddingModelRegistry(dataSource);
 		registry.activate(new EmbeddingSpace("test-model", EmbeddingDimensions.DEFAULT), CatalogSyncStatus.SUCCEEDED);
 		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
 		indexer = new EmbeddingSavedItemIndexer(
@@ -78,6 +80,47 @@ class EmbeddingSavedItemIndexerTest {
 
 		List<SavedItemHit> hits = embeddings.findSimilar(CHAT_ID, ones(), 3, 0.1);
 		assertThat(hits).extracting(SavedItemHit::savedItemId).containsExactly(saved.id());
+	}
+
+	@Test
+	void index_prefersSearchTextOverBodyAndUrl() {
+		RecordingEmbeddingPort port = new RecordingEmbeddingPort(ones());
+		indexer = new EmbeddingSavedItemIndexer(port, embeddings, registry, EmbeddingDimensions.DEFAULT);
+		SavedItem saved = savedItems.save(new SavedItem(
+				null,
+				CHAT_ID,
+				Optional.of("https://example.com/post"),
+				"russian body text",
+				"AI",
+				9L,
+				Optional.empty(),
+				Optional.empty(),
+				Optional.empty(),
+				Optional.of("Title"),
+				Optional.empty(),
+				List.of(),
+				Optional.of("English search text about the save")));
+
+		indexer.index(saved);
+
+		assertThat(port.lastEmbeddedText.get()).isEqualTo("English search text about the save");
+	}
+
+	@Test
+	void index_withoutSearchText_fallsBackToBody() {
+		RecordingEmbeddingPort port = new RecordingEmbeddingPort(ones());
+		indexer = new EmbeddingSavedItemIndexer(port, embeddings, registry, EmbeddingDimensions.DEFAULT);
+		SavedItem saved = savedItems.save(SavedItem.of(
+				null,
+				CHAT_ID,
+				Optional.of("https://example.com/post"),
+				"useful tip",
+				"AI",
+				9L));
+
+		indexer.index(saved);
+
+		assertThat(port.lastEmbeddedText.get()).isEqualTo("useful tip");
 	}
 
 	private static float[] ones() {
@@ -104,6 +147,21 @@ class EmbeddingSavedItemIndexerTest {
 
 		@Override
 		public float[] embed(String text) {
+			return vector.clone();
+		}
+	}
+
+	private static final class RecordingEmbeddingPort implements EmbeddingPort {
+		private final float[] vector;
+		final AtomicReference<String> lastEmbeddedText = new AtomicReference<>();
+
+		RecordingEmbeddingPort(float[] vector) {
+			this.vector = vector;
+		}
+
+		@Override
+		public float[] embed(String text) {
+			lastEmbeddedText.set(text);
 			return vector.clone();
 		}
 	}
