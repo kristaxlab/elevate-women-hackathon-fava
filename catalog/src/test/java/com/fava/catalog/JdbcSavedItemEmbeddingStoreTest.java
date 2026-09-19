@@ -29,16 +29,20 @@ class JdbcSavedItemEmbeddingStoreTest {
 
 	private SavedItemStore savedItems;
 	private SavedItemEmbeddingStore embeddings;
+	private long modelId;
 
 	@BeforeEach
 	void setUp() {
 		DataSource dataSource = dataSource();
 		CatalogSchema.ensure(dataSource);
 		new JdbcTemplate(dataSource)
-				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs CASCADE");
+				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs, embedding_models CASCADE");
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
+		modelId = new JdbcEmbeddingModelRegistry(dataSource)
+				.activate("test-model", EmbeddingDimensions.DEFAULT, CatalogSyncStatus.SUCCEEDED)
+				.id();
 		catalogs.create(new Catalog(CHAT_A, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));
 		catalogs.create(new Catalog(CHAT_B, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));
 	}
@@ -51,8 +55,8 @@ class JdbcSavedItemEmbeddingStoreTest {
 				null, CHAT_B, Optional.of("https://b.example/1"), "alpha tip other catalog", "AI", 2L));
 
 		float[] vector = unitVector(1f, 0f, 0f);
-		embeddings.upsert(itemA.id(), CHAT_A, pad(vector));
-		embeddings.upsert(itemB.id(), CHAT_B, pad(vector));
+		embeddings.upsert(itemA.id(), CHAT_A, pad(vector), modelId);
+		embeddings.upsert(itemB.id(), CHAT_B, pad(vector), modelId);
 
 		List<SavedItemHit> hits = embeddings.findSimilar(CHAT_A, pad(vector), 5, 1.0);
 
@@ -64,7 +68,7 @@ class JdbcSavedItemEmbeddingStoreTest {
 	void findSimilar_excludesHitsAboveDistanceThreshold() {
 		SavedItem item = savedItems.save(new SavedItem(
 				null, CHAT_A, Optional.empty(), "orthogonal", "AI", 3L));
-		embeddings.upsert(item.id(), CHAT_A, pad(unitVector(0f, 1f, 0f)));
+		embeddings.upsert(item.id(), CHAT_A, pad(unitVector(0f, 1f, 0f)), modelId);
 
 		List<SavedItemHit> hits = embeddings.findSimilar(CHAT_A, pad(unitVector(1f, 0f, 0f)), 5, 0.2);
 
@@ -75,9 +79,9 @@ class JdbcSavedItemEmbeddingStoreTest {
 		return new float[] {x, y, z};
 	}
 
-	/** Pads a short unit vector into {@link EmbeddingDimensions#OPENAI_TEXT_EMBEDDING_3_SMALL} dims. */
+	/** Pads a short unit vector into {@link EmbeddingDimensions#DEFAULT} dims. */
 	private static float[] pad(float[] head) {
-		float[] full = new float[EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL];
+		float[] full = new float[EmbeddingDimensions.DEFAULT];
 		System.arraycopy(head, 0, full, 0, head.length);
 		return full;
 	}

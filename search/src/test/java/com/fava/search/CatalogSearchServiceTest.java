@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fava.catalog.Catalog;
 import com.fava.catalog.CatalogSchema;
 import com.fava.catalog.CatalogStore;
+import com.fava.catalog.CatalogSyncStatus;
 import com.fava.catalog.EmbeddingDimensions;
 import com.fava.catalog.JdbcCatalogStore;
+import com.fava.catalog.JdbcEmbeddingModelRegistry;
 import com.fava.catalog.JdbcSavedItemEmbeddingStore;
 import com.fava.catalog.JdbcSavedItemStore;
 import com.fava.catalog.SavedItem;
@@ -45,6 +47,7 @@ class CatalogSearchServiceTest {
 
 	private SavedItemStore savedItems;
 	private SavedItemEmbeddingStore embeddings;
+	private long modelId;
 	private RecordingChatModel chat;
 	private CatalogSearchService search;
 
@@ -53,10 +56,13 @@ class CatalogSearchServiceTest {
 		DataSource dataSource = dataSource();
 		CatalogSchema.ensure(dataSource);
 		new JdbcTemplate(dataSource)
-				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs CASCADE");
+				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs, embedding_models CASCADE");
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
+		modelId = new JdbcEmbeddingModelRegistry(dataSource)
+				.activate("test-model", EmbeddingDimensions.DEFAULT, CatalogSyncStatus.SUCCEEDED)
+				.id();
 		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
 		catalogs.create(new Catalog(OTHER_CHAT, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
 		chat = new RecordingChatModel("Grounded answer about pilates.");
@@ -95,8 +101,8 @@ class CatalogSearchServiceTest {
 				"Pilates secrets from the open web",
 				"AI",
 				2L));
-		embeddings.upsert(mine.id(), CHAT_ID, ones());
-		embeddings.upsert(other.id(), OTHER_CHAT, ones());
+		embeddings.upsert(mine.id(), CHAT_ID, ones(), modelId);
+		embeddings.upsert(other.id(), OTHER_CHAT, ones(), modelId);
 
 		CatalogSearchResult result = search.answer(CHAT_ID, "Any pilates tips?");
 
@@ -118,7 +124,7 @@ class CatalogSearchServiceTest {
 				null, CHAT_ID, Optional.empty(), "unrelated cooking note", "AI", 3L));
 		float[] orthogonal = zeros();
 		orthogonal[0] = 1f;
-		embeddings.upsert(item.id(), CHAT_ID, orthogonal);
+		embeddings.upsert(item.id(), CHAT_ID, orthogonal, modelId);
 
 		CatalogSearchResult result = search.answer(CHAT_ID, "pilates?");
 

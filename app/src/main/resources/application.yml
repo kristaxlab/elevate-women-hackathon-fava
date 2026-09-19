@@ -18,8 +18,9 @@ fava:
     api-key: ${FAVA_OPENROUTER_API_KEY:}
     base-url: ${FAVA_OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
     chat-model: ${FAVA_OPENROUTER_CHAT_MODEL:openai/gpt-4o-mini}
-    # Must produce 1536-d vectors (see EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL)
+    # Must match embedding-dimensions (default openai/text-embedding-3-small → 1536)
     embedding-model: ${FAVA_OPENROUTER_EMBEDDING_MODEL:openai/text-embedding-3-small}
+    embedding-dimensions: ${FAVA_OPENROUTER_EMBEDDING_DIMENSIONS:1536}
 
 management:
   endpoints:

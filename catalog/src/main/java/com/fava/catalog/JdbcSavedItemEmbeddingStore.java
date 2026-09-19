@@ -1,35 +1,56 @@
 package com.fava.catalog;
 
 import java.util.List;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 /**
  * JDBC {@link SavedItemEmbeddingStore} using pgvector cosine distance ({@code <=>}).
  */
 public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStore {
 
+	private static final RowMapper<SavedItem> SAVED_ITEM_ROW = (rs, rowNum) -> new SavedItem(
+			rs.getLong("id"),
+			rs.getLong("chat_id"),
+			Optional.ofNullable(rs.getString("url")),
+			rs.getString("body_text"),
+			rs.getString("theme_name"),
+			rs.getLong("source_message_id"));
+
 	private final JdbcTemplate jdbc;
+	private final int dimensions;
+
+	public JdbcSavedItemEmbeddingStore(DataSource dataSource, int dimensions) {
+		if (dimensions <= 0) {
+			throw new IllegalArgumentException("dimensions must be positive");
+		}
+		this.jdbc = new JdbcTemplate(dataSource);
+		this.dimensions = dimensions;
+	}
 
 	public JdbcSavedItemEmbeddingStore(DataSource dataSource) {
-		this.jdbc = new JdbcTemplate(dataSource);
+		this(dataSource, EmbeddingDimensions.DEFAULT);
 	}
 
 	@Override
-	public void upsert(long savedItemId, long chatId, float[] embedding) {
+	public void upsert(long savedItemId, long chatId, float[] embedding, long embeddingModelId) {
 		requireDims(embedding);
 		String literal = toVectorLiteral(embedding);
 		jdbc.update(
 				"""
-						INSERT INTO saved_item_embeddings (saved_item_id, chat_id, embedding)
-						VALUES (?, ?, ?::vector)
+						INSERT INTO saved_item_embeddings (saved_item_id, chat_id, embedding, embedding_model_id)
+						VALUES (?, ?, ?::vector, ?)
 						ON CONFLICT (saved_item_id) DO UPDATE SET
 							chat_id = EXCLUDED.chat_id,
-							embedding = EXCLUDED.embedding
+							embedding = EXCLUDED.embedding,
+							embedding_model_id = EXCLUDED.embedding_model_id
 						""",
 				savedItemId,
 				chatId,
-				literal);
+				literal,
+				embeddingModelId);
 	}
 
 	@Override
@@ -54,10 +75,29 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 				limit);
 	}
 
-	private static void requireDims(float[] embedding) {
-		if (embedding == null || embedding.length != EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL) {
-			throw new IllegalArgumentException(
-					"embedding must have " + EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL + " dimensions");
+	@Override
+	public void deleteAll() {
+		jdbc.update("DELETE FROM saved_item_embeddings");
+	}
+
+	@Override
+	public List<SavedItem> findNeedingEmbedding(long activeEmbeddingModelId) {
+		return jdbc.query(
+				"""
+						SELECT si.id, si.chat_id, si.url, si.body_text, si.theme_name, si.source_message_id
+						FROM saved_items si
+						LEFT JOIN saved_item_embeddings e ON e.saved_item_id = si.id
+						WHERE e.saved_item_id IS NULL
+						   OR e.embedding_model_id IS DISTINCT FROM ?
+						ORDER BY si.id
+						""",
+				SAVED_ITEM_ROW,
+				activeEmbeddingModelId);
+	}
+
+	private void requireDims(float[] embedding) {
+		if (embedding == null || embedding.length != dimensions) {
+			throw new IllegalArgumentException("embedding must have " + dimensions + " dimensions");
 		}
 	}
 

@@ -42,7 +42,7 @@ class KeywordCatalogSearchServiceTest {
 		DataSource dataSource = dataSource();
 		CatalogSchema.ensure(dataSource);
 		new JdbcTemplate(dataSource)
-				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs CASCADE");
+				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs, embedding_models CASCADE");
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
