@@ -1,9 +1,8 @@
 dependencies {
 	implementation project(':catalog')
-	implementation project(':ingest')
 	implementation project(':classify')
+	implementation project(':ingest')
 	implementation project(':search')
-	implementation project(':intent-router')
 
 	implementation 'org.springframework.boot:spring-boot-starter'
 	implementation 'org.springframework.boot:spring-boot-starter-json'

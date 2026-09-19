@@ -33,12 +33,24 @@ A bot-created forum topic that is not a Theme Topic. In v1: Inbox and Smart Sear
 _Avoid_: special folder, meta topic
 
 **Inbox**:
-The System Topic where new candidates for saving are dropped for Fava to process.
-_Avoid_: queue, intake, general
+The System Topic where Participants post candidates to **save**. The Intent Router runs a pipeline here only when Action Intent is save; search-shaped messages are redirected to Smart Search.
+_Avoid_: queue, intake
 
 **Smart Search**:
-The System Topic where Participants ask natural-language questions over this Catalog.
+The System Topic where Participants ask Catalog Questions. The Intent Router runs search here only when Action Intent is search; save-shaped messages are redirected to Inbox.
 _Avoid_: chat, assistant topic, RAG topic
+
+**General**:
+Telegram’s default forum topic (not a Fava System Topic). The Intent Router may nudge Participants toward Inbox or Smart Search based on Action Intent; it never saves or answers there.
+_Avoid_: treating General as a third intake folder
+
+**Intent Router**:
+The policy layer that classifies Action Intent for messages in Inbox, Smart Search, or General, applies the topic gate, and dispatches to ingest or Smart Search (or notifies only).
+_Avoid_: orchestrator, multi-agent runtime, subagent (for these Java pipelines)
+
+**Action Intent**:
+The classified request type for a Catalog message: save, search, or unclear.
+_Avoid_: theme classification (see Classifier Decision), routing (alone)
 
 **Setup**:
 The one-time configuration of a Catalog’s Theme Topics after Fava is admin in a forum group. v1 does not allow changing Theme Topics afterward.

@@ -25,6 +25,7 @@ public final class CatalogSearchService implements CatalogSearchPort {
 			You answer questions using ONLY the Saved Items provided as context.
 			Do not use outside knowledge. If the context is insufficient, say you could not find \
 			anything relevant in the Catalog.
+			You cannot open, fetch, or check external links from the question; use only Saved Items.
 			Be concise. Do not invent URLs or facts that are not in the context.
 			""";
 

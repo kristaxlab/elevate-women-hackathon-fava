@@ -8,7 +8,8 @@ import com.fava.catalog.SavedItemStore;
 import com.fava.classify.TopicClassifier;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
-import com.fava.search.CatalogSearchPort;
+import com.fava.intent.IntentRouter;
+import com.fava.intent.ParticipantNotifyPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
@@ -44,6 +45,11 @@ public class TelegramConfiguration {
 	}
 
 	@Bean
+	ParticipantNotifyPort participantNotifyPort(TelegramBotClient telegramBotClient) {
+		return telegramBotClient::replyText;
+	}
+
+	@Bean
 	BotUsernameHolder botUsernameHolder(TelegramProperties properties) {
 		BotUsernameHolder holder = new BotUsernameHolder();
 		if (properties.hasConfiguredUsername()) {
@@ -72,9 +78,8 @@ public class TelegramConfiguration {
 			CatalogStore catalogStore,
 			CatalogSetupService catalogSetupService,
 			BotUserIdHolder botUserIdHolder,
-			InboxMessageNormalizer inboxMessageNormalizer,
 			InboxFilingService inboxFilingService,
-			CatalogSearchPort catalogSearchPort) {
+			IntentRouter intentRouter) {
 		return new GroupUpdateHandler(
 				messageSource,
 				telegramBotClient,
@@ -82,9 +87,8 @@ public class TelegramConfiguration {
 				catalogSetupService,
 				telegramBotClient,
 				botUserIdHolder::get,
-				inboxMessageNormalizer,
 				inboxFilingService,
-				catalogSearchPort);
+				intentRouter);
 	}
 
 	@Bean

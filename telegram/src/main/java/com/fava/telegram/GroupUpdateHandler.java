@@ -5,14 +5,11 @@ import com.fava.catalog.CatalogSetupResult;
 import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.ThemeTopic;
-import com.fava.ingest.AcceptedDraft;
 import com.fava.ingest.InboxFilingService;
-import com.fava.ingest.InboxMessageNormalizer;
-import com.fava.ingest.NormalizeResult;
 import com.fava.ingest.ThemePickCallback;
-import com.fava.search.CatalogAnswerFormatter;
-import com.fava.search.CatalogSearchPort;
-import com.fava.search.CatalogSearchResult;
+import com.fava.intent.IntentRouter;
+import com.fava.intent.MessageLocus;
+import com.fava.intent.RoutedRequest;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -22,19 +19,21 @@ import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
 
 /**
- * Routes group/supergroup updates for Catalog Setup, Inbox ingest, and Smart Search:
+ * Routes group/supergroup updates for Catalog Setup and Intent Router intake:
  * <ul>
  *   <li>{@code my_chat_member} when Fava becomes admin → nudge toward Topics + {@code /setup}</li>
  *   <li>{@code /setup} with themes on the same message (e.g. {@code /setup AI, Fitness}), or
  *       {@code /setup} alone then the next message from the same admin with the theme list</li>
- *   <li>Messages in a configured Catalog's Inbox thread → normalize, file (or reject)</li>
- *   <li>Messages in Smart Search → Catalog Question RAG (not Inbox ingest)</li>
+ *   <li>Messages in a configured Catalog's Inbox, Smart Search, or General → {@link IntentRouter}</li>
  *   <li>Theme Topic pick {@code callback_query} → complete Filing</li>
  *   <li>Non-command messages in an unconfigured group → prompt admins to run {@code /setup}</li>
  * </ul>
- * Private chats are ignored (see {@link DmUpdateHandler}).
+ * Theme Topics stay silent. Private chats are ignored (see {@link DmUpdateHandler}).
  */
 public final class GroupUpdateHandler {
+
+	/** Telegram forum General topic thread id. */
+	static final long GENERAL_THREAD_ID = 1L;
 
 	static final String MSG_ADMIN_NUDGE = "fava.setup.admin_nudge";
 	static final String MSG_NEEDS_FORUM = "fava.setup.needs_forum";
@@ -51,9 +50,8 @@ public final class GroupUpdateHandler {
 	private final CatalogSetupService setupService;
 	private final ChatAdminPort chatAdminPort;
 	private final Supplier<Long> botUserId;
-	private final InboxMessageNormalizer inboxNormalizer;
 	private final InboxFilingService inboxFiling;
-	private final CatalogSearchPort catalogSearch;
+	private final IntentRouter intentRouter;
 
 	/** chatId → userId awaiting theme list after bare {@code /setup}. */
 	private final Map<Long, Long> pendingThemeListByChat = new ConcurrentHashMap<>();
@@ -65,18 +63,16 @@ public final class GroupUpdateHandler {
 			CatalogSetupService setupService,
 			ChatAdminPort chatAdminPort,
 			Supplier<Long> botUserId,
-			InboxMessageNormalizer inboxNormalizer,
 			InboxFilingService inboxFiling,
-			CatalogSearchPort catalogSearch) {
+			IntentRouter intentRouter) {
 		this.messages = messages;
 		this.outbound = outbound;
 		this.catalogStore = catalogStore;
 		this.setupService = setupService;
 		this.chatAdminPort = chatAdminPort;
 		this.botUserId = botUserId;
-		this.inboxNormalizer = inboxNormalizer;
 		this.inboxFiling = inboxFiling;
-		this.catalogSearch = catalogSearch;
+		this.intentRouter = intentRouter;
 	}
 
 	public void handle(TelegramUpdate update) {
@@ -175,13 +171,9 @@ public final class GroupUpdateHandler {
 		Optional<Catalog> configured = catalogStore.findByChatId(chatId);
 		if (configured.isPresent()) {
 			Catalog catalog = configured.get();
-			if (message.messageThreadId() != null && message.messageThreadId() == catalog.inboxThreadId()) {
-				handleInboxMessage(message, catalog);
-				return;
-			}
-			if (message.messageThreadId() != null
-					&& message.messageThreadId() == catalog.smartSearchThreadId()) {
-				handleSmartSearchMessage(message, catalog);
+			Optional<MessageLocus> locus = resolveLocus(message.messageThreadId(), catalog);
+			if (locus.isPresent()) {
+				intentRouter.route(toRoutedRequest(message, locus.get()), catalog);
 			}
 			return;
 		}
@@ -191,26 +183,32 @@ public final class GroupUpdateHandler {
 		}
 	}
 
-	private void handleSmartSearchMessage(TelegramMessage message, Catalog catalog) {
-		String text = message.text();
-		if (text == null || text.isBlank()) {
-			return;
+	static Optional<MessageLocus> resolveLocus(Long threadId, Catalog catalog) {
+		if (threadId != null && threadId == catalog.inboxThreadId()) {
+			return Optional.of(MessageLocus.INBOX);
 		}
-		CatalogSearchResult result = catalogSearch.answer(catalog.chatId(), text);
-		outbound.replyText(message.chat().id(), message.messageId(), CatalogAnswerFormatter.format(result));
+		if (threadId != null && threadId == catalog.smartSearchThreadId()) {
+			return Optional.of(MessageLocus.SMART_SEARCH);
+		}
+		if (threadId == null || threadId == GENERAL_THREAD_ID) {
+			return Optional.of(MessageLocus.GENERAL);
+		}
+		return Optional.empty();
 	}
 
-	private void handleInboxMessage(TelegramMessage message, Catalog catalog) {
-		NormalizeResult normalized = inboxNormalizer.normalize(InboxMessageFactsMapper.from(message));
-		switch (normalized) {
-			case NormalizeResult.Rejected rejected ->
-					outbound.replyText(message.chat().id(), message.messageId(), rejected.reason());
-			case NormalizeResult.Accepted accepted -> fileAccepted(accepted.draft(), catalog);
-		}
-	}
-
-	private void fileAccepted(AcceptedDraft draft, Catalog catalog) {
-		inboxFiling.file(draft, catalog);
+	private static RoutedRequest toRoutedRequest(TelegramMessage message, MessageLocus locus) {
+		var facts = InboxMessageFactsMapper.from(message);
+		Long userId = message.from() == null ? null : message.from().id();
+		return new RoutedRequest(
+				facts.chatId(),
+				facts.messageId(),
+				facts.threadId(),
+				locus,
+				userId,
+				facts.text(),
+				facts.urls(),
+				facts.forwarded(),
+				facts.forwardOriginText());
 	}
 
 	private void handleSetupCommand(TelegramMessage message) {

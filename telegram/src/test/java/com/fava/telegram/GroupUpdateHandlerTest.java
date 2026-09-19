@@ -16,6 +16,8 @@ import com.fava.ingest.FilingCallbackButton;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
 import com.fava.ingest.ThemePickCallback;
+import com.fava.intent.HeuristicActionIntentClassifier;
+import com.fava.intent.IntentRouter;
 import com.fava.search.CatalogSearchPort;
 import com.fava.search.CatalogSearchResult;
 import com.fava.search.CatalogSearchService;
@@ -78,9 +80,17 @@ class GroupUpdateHandlerTest {
 				setup,
 				admins,
 				() -> BOT_ID,
+				filing,
+				intentRouter(filing));
+	}
+
+	private IntentRouter intentRouter(InboxFilingService filing) {
+		return new IntentRouter(
+				new HeuristicActionIntentClassifier(),
 				new InboxMessageNormalizer(),
 				filing,
-				catalogSearch);
+				catalogSearch,
+				outbound::replyText);
 	}
 
 	@Test
@@ -185,14 +195,14 @@ class GroupUpdateHandlerTest {
 	}
 
 	@Test
-	void inboxUnsupported_getsRejectionReply() {
+	void inboxUnsupported_getsClarifyWhenIntentUnclear() {
 		seedConfiguredCatalog();
 
 		handler.handle(groupText(MEMBER_ID, "just a note", List.of(), INBOX_THREAD));
 
 		assertThat(outbound.copies).isEmpty();
 		assertThat(outbound.replies).hasSize(1);
-		assertThat(outbound.replies.getFirst().text()).contains("http");
+		assertThat(outbound.replies.getFirst().text().toLowerCase(Locale.ROOT)).contains("save");
 		assertThat(savedItems.byId).isEmpty();
 	}
 
@@ -272,9 +282,8 @@ class GroupUpdateHandlerTest {
 				new DefaultCatalogSetupService(store, forum),
 				admins,
 				() -> BOT_ID,
-				new InboxMessageNormalizer(),
 				filing,
-				catalogSearch);
+				intentRouter(filing));
 
 		handler.handle(groupText(MEMBER_ID, "https://example.com/pick-me", List.of(), INBOX_THREAD));
 		assertThat(outbound.callbackReplies).hasSize(1);
