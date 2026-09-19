@@ -3,6 +3,7 @@ package com.fava.telegram;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fava.catalog.CatalogForumPort;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,9 +16,9 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Thin Bot API client using JDK HttpClient (long-poll getUpdates + sendMessage + getMe).
+ * Thin Bot API client using JDK HttpClient (long-poll getUpdates + messaging + forum/admin helpers).
  */
-final class TelegramBotClient implements TelegramOutbound {
+final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, ChatAdminPort {
 
 	private static final Logger log = LoggerFactory.getLogger(TelegramBotClient.class);
 	private static final String API_BASE = "https://api.telegram.org/bot";
@@ -54,9 +55,9 @@ final class TelegramBotClient implements TelegramOutbound {
 	}
 
 	/**
-	 * Resolves this bot's username via {@code getMe}. Returns null if missing or the call fails.
+	 * Resolves this bot's identity via {@code getMe}.
 	 */
-	String getMeUsername() throws IOException, InterruptedException {
+	BotIdentity getMe() throws IOException, InterruptedException {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(API_BASE + token + "/getMe"))
 				.timeout(Duration.ofSeconds(30))
 				.GET()
@@ -70,7 +71,91 @@ final class TelegramBotClient implements TelegramOutbound {
 			throw new IOException("getMe not ok: " + response.body());
 		}
 		String username = parsed.result().username();
-		return username == null || username.isBlank() ? null : username;
+		username = username == null || username.isBlank() ? null : username;
+		return new BotIdentity(parsed.result().id(), username);
+	}
+
+	String getMeUsername() throws IOException, InterruptedException {
+		return getMe().username();
+	}
+
+	@Override
+	public boolean isForum(long chatId) {
+		try {
+			String body = objectMapper.writeValueAsString(new ChatIdBody(chatId));
+			HttpResponse<String> response = postJson("getChat", body);
+			if (response.statusCode() != 200) {
+				log.warn("getChat failed HTTP {}: {}", response.statusCode(), response.body());
+				return false;
+			}
+			GetChatResponse parsed = objectMapper.readValue(response.body(), GetChatResponse.class);
+			if (!parsed.ok() || parsed.result() == null) {
+				log.warn("getChat not ok: {}", response.body());
+				return false;
+			}
+			return Boolean.TRUE.equals(parsed.result().isForum());
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("getChat interrupted for chat {}", chatId);
+			return false;
+		}
+		catch (IOException e) {
+			log.warn("getChat failed for chat {}: {}", chatId, e.toString());
+			return false;
+		}
+	}
+
+	@Override
+	public long createForumTopic(long chatId, String name) {
+		try {
+			String body = objectMapper.writeValueAsString(new CreateForumTopicBody(chatId, name));
+			HttpResponse<String> response = postJson("createForumTopic", body);
+			if (response.statusCode() != 200) {
+				throw new IllegalStateException(
+						"createForumTopic HTTP " + response.statusCode() + ": " + response.body());
+			}
+			CreateForumTopicResponse parsed = objectMapper.readValue(response.body(), CreateForumTopicResponse.class);
+			if (!parsed.ok() || parsed.result() == null) {
+				throw new IllegalStateException("createForumTopic not ok: " + response.body());
+			}
+			return parsed.result().messageThreadId();
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException("createForumTopic interrupted for chat " + chatId, e);
+		}
+		catch (IOException e) {
+			throw new IllegalStateException("createForumTopic failed for chat " + chatId + ": " + e, e);
+		}
+	}
+
+	@Override
+	public boolean isAdmin(long chatId, long userId) {
+		try {
+			String body = objectMapper.writeValueAsString(new GetChatMemberBody(chatId, userId));
+			HttpResponse<String> response = postJson("getChatMember", body);
+			if (response.statusCode() != 200) {
+				log.warn("getChatMember failed HTTP {}: {}", response.statusCode(), response.body());
+				return false;
+			}
+			GetChatMemberResponse parsed = objectMapper.readValue(response.body(), GetChatMemberResponse.class);
+			if (!parsed.ok() || parsed.result() == null) {
+				log.warn("getChatMember not ok: {}", response.body());
+				return false;
+			}
+			String status = parsed.result().status();
+			return "administrator".equals(status) || "creator".equals(status);
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("getChatMember interrupted for chat {}", chatId);
+			return false;
+		}
+		catch (IOException e) {
+			log.warn("getChatMember failed for chat {}: {}", chatId, e.toString());
+			return false;
+		}
 	}
 
 	@Override
@@ -89,12 +174,7 @@ final class TelegramBotClient implements TelegramOutbound {
 	private void sendMessage(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
 		try {
 			String body = objectMapper.writeValueAsString(new SendMessageBody(chatId, text, replyMarkup));
-			HttpRequest request = HttpRequest.newBuilder(URI.create(API_BASE + token + "/sendMessage"))
-					.timeout(Duration.ofSeconds(30))
-					.header("Content-Type", "application/json")
-					.POST(HttpRequest.BodyPublishers.ofString(body))
-					.build();
-			HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+			HttpResponse<String> response = postJson("sendMessage", body);
 			if (response.statusCode() != 200) {
 				log.warn("sendMessage failed HTTP {}: {}", response.statusCode(), response.body());
 			}
@@ -108,6 +188,18 @@ final class TelegramBotClient implements TelegramOutbound {
 		}
 	}
 
+	private HttpResponse<String> postJson(String method, String body) throws IOException, InterruptedException {
+		HttpRequest request = HttpRequest.newBuilder(URI.create(API_BASE + token + "/" + method))
+				.timeout(Duration.ofSeconds(30))
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(body))
+				.build();
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	record BotIdentity(long id, String username) {
+	}
+
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record GetUpdatesResponse(boolean ok, List<TelegramUpdate> result) {
 	}
@@ -117,7 +209,36 @@ final class TelegramBotClient implements TelegramOutbound {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
-	private record GetMeUser(String username) {
+	private record GetMeUser(long id, String username) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record GetChatResponse(boolean ok, TelegramChat result) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record GetChatMemberResponse(boolean ok, TelegramChatMember result) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record CreateForumTopicResponse(boolean ok, ForumTopic result) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record ForumTopic(@JsonProperty("message_thread_id") long messageThreadId) {
+	}
+
+	private record ChatIdBody(@JsonProperty("chat_id") long chatId) {
+	}
+
+	private record GetChatMemberBody(
+			@JsonProperty("chat_id") long chatId,
+			@JsonProperty("user_id") long userId) {
+	}
+
+	private record CreateForumTopicBody(
+			@JsonProperty("chat_id") long chatId,
+			String name) {
 	}
 
 	@JsonIgnoreProperties(ignoreUnknown = true)

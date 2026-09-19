@@ -1,4 +1,4 @@
 /**
- * Catalog: persistence for Catalogs, Theme Topics, and Saved Items (stub for skeleton).
+ * Catalog: persistence and Setup orchestration for Catalogs, System Topics, and Theme Topics.
  */
 package com.fava.catalog;

@@ -1,6 +1,8 @@
 // library module — no boot plugin
 
 dependencies {
+	implementation project(':catalog')
+
 	implementation 'org.springframework.boot:spring-boot-starter'
 	implementation 'org.springframework.boot:spring-boot-starter-json'
 

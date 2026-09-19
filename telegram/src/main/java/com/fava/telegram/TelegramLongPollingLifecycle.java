@@ -9,7 +9,7 @@ import org.springframework.context.SmartLifecycle;
 /**
  * Long-polls {@code getUpdates} on a background thread when a bot token is configured.
  * Without a token the app still starts; polling is skipped with a warning.
- * Resolves the bot username (config or {@code getMe}) once before polling so DM deep links work.
+ * Resolves the bot identity (config username and/or {@code getMe}) once before polling.
  */
 final class TelegramLongPollingLifecycle implements SmartLifecycle {
 
@@ -19,7 +19,9 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 	private final TelegramProperties properties;
 	private final TelegramBotClient client;
 	private final DmUpdateHandler dmUpdateHandler;
+	private final GroupUpdateHandler groupUpdateHandler;
 	private final BotUsernameHolder botUsernameHolder;
+	private final BotUserIdHolder botUserIdHolder;
 
 	private final Object lifecycleMonitor = new Object();
 	private volatile boolean running;
@@ -29,11 +31,15 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 			TelegramProperties properties,
 			TelegramBotClient client,
 			DmUpdateHandler dmUpdateHandler,
-			BotUsernameHolder botUsernameHolder) {
+			GroupUpdateHandler groupUpdateHandler,
+			BotUsernameHolder botUsernameHolder,
+			BotUserIdHolder botUserIdHolder) {
 		this.properties = properties;
 		this.client = client;
 		this.dmUpdateHandler = dmUpdateHandler;
+		this.groupUpdateHandler = groupUpdateHandler;
 		this.botUsernameHolder = botUsernameHolder;
+		this.botUserIdHolder = botUserIdHolder;
 	}
 
 	@Override
@@ -46,7 +52,7 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 				log.warn("fava.telegram.bot-token is empty; skipping Telegram long polling");
 				return;
 			}
-			resolveBotUsername();
+			resolveBotIdentity();
 			running = true;
 			pollThread = Thread.ofVirtual().name("telegram-long-poll").start(this::pollLoop);
 			log.info("Telegram long polling started");
@@ -69,28 +75,31 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 		return running;
 	}
 
-	private void resolveBotUsername() {
+	private void resolveBotIdentity() {
 		if (properties.hasConfiguredUsername()) {
 			botUsernameHolder.set(properties.botUsername());
 			log.info("Using configured Telegram bot username @{}", botUsernameHolder.get());
-			return;
 		}
 		try {
-			String username = client.getMeUsername();
-			botUsernameHolder.set(username);
-			if (username != null) {
-				log.info("Resolved Telegram bot username via getMe: @{}", username);
+			TelegramBotClient.BotIdentity me = client.getMe();
+			botUserIdHolder.set(me.id());
+			if (!properties.hasConfiguredUsername()) {
+				botUsernameHolder.set(me.username());
+				if (me.username() != null) {
+					log.info("Resolved Telegram bot username via getMe: @{}", me.username());
+				}
+				else {
+					log.warn("getMe returned no username; DM Catalog deep links will be omitted");
+				}
 			}
-			else {
-				log.warn("getMe returned no username; DM Catalog deep links will be omitted");
-			}
+			log.info("Resolved Telegram bot user id via getMe: {}", me.id());
 		}
 		catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
-			log.warn("getMe interrupted; DM Catalog deep links will be omitted");
+			log.warn("getMe interrupted; bot identity incomplete");
 		}
 		catch (IOException e) {
-			log.warn("getMe failed; DM Catalog deep links will be omitted: {}", e.toString());
+			log.warn("getMe failed; bot identity incomplete: {}", e.toString());
 		}
 	}
 
@@ -101,6 +110,7 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 				List<TelegramUpdate> updates = client.getUpdates(offset, LONG_POLL_TIMEOUT_SECONDS);
 				for (TelegramUpdate update : updates) {
 					dmUpdateHandler.handle(update);
+					groupUpdateHandler.handle(update);
 					if (update.updateId() != null) {
 						offset = update.updateId() + 1;
 					}
