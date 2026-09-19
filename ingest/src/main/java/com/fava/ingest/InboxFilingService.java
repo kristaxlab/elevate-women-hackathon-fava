@@ -111,7 +111,7 @@ public final class InboxFilingService {
 	private FilingResult fileToTheme(AcceptedDraft draft, Catalog catalog, String themeName) {
 		ThemeTopic theme = findTheme(catalog, themeName)
 				.orElseThrow(() -> new IllegalStateException("Unknown Theme Topic: " + themeName));
-		SavedItem saved = savedItems.save(new SavedItem(
+		SavedItem saved = savedItems.save(SavedItem.of(
 				null,
 				catalog.chatId(),
 				draft.url(),

@@ -57,7 +57,7 @@ class KeywordCatalogSearchServiceTest {
 
 	@Test
 	void keywordHit_returnsAnswerWithCitationUrl_withoutInventing() {
-		savedItems.save(new SavedItem(
+		savedItems.save(SavedItem.of(
 				null,
 				CHAT_ID,
 				Optional.of("https://example.com/pilates"),

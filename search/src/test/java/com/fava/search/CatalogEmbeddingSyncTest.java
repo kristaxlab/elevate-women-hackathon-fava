@@ -71,7 +71,7 @@ class CatalogEmbeddingSyncTest {
 
 	@Test
 	void firstBoot_seedsRegistryAndEmbedsSavedItems() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://a.example"), "alpha body", "AI", 1L));
 
 		sync.ensureSynced(SPACE_A);
@@ -89,7 +89,7 @@ class CatalogEmbeddingSyncTest {
 	@Test
 	void modelChange_wipesAndReembedsWithNewModel() {
 		sync.ensureSynced(SPACE_A);
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.empty(), "body", "AI", 1L));
 		new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, DIMS).index(item);
 		assertThat(embeddings.findNeedingEmbedding(registry.findActive().orElseThrow().id())).isEmpty();
@@ -107,9 +107,9 @@ class CatalogEmbeddingSyncTest {
 
 	@Test
 	void syncFailure_marksFailedAndAborts_thenResumeFinishesRemaining() {
-		SavedItem first = savedItems.save(new SavedItem(
+		SavedItem first = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://1.example"), "one", "AI", 1L));
-		SavedItem second = savedItems.save(new SavedItem(
+		SavedItem second = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://2.example"), "two", "AI", 2L));
 
 		FailAfterOnePort flaky = new FailAfterOnePort(ones(DIMS));
@@ -137,7 +137,7 @@ class CatalogEmbeddingSyncTest {
 	@Test
 	void dimensionChange_recreatesTableAndSucceeds() {
 		sync.ensureSynced(SPACE_A);
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.empty(), "body", "AI", 1L));
 		new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, DIMS).index(item);
 

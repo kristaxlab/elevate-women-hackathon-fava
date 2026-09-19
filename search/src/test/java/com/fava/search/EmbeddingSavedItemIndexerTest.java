@@ -66,7 +66,7 @@ class EmbeddingSavedItemIndexerTest {
 
 	@Test
 	void index_embedsBodyAndUrl_andUpsertsRetrievableVector() {
-		SavedItem saved = savedItems.save(new SavedItem(
+		SavedItem saved = savedItems.save(SavedItem.of(
 				null,
 				CHAT_ID,
 				Optional.of("https://example.com/post"),

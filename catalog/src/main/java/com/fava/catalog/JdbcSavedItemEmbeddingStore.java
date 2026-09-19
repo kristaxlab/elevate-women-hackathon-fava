@@ -1,23 +1,13 @@
 package com.fava.catalog;
 
 import java.util.List;
-import java.util.Optional;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 
 /**
  * JDBC {@link SavedItemEmbeddingStore} using pgvector cosine distance ({@code <=>}).
  */
 public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStore {
-
-	private static final RowMapper<SavedItem> SAVED_ITEM_ROW = (rs, rowNum) -> new SavedItem(
-			rs.getLong("id"),
-			rs.getLong("chat_id"),
-			Optional.ofNullable(rs.getString("url")),
-			rs.getString("body_text"),
-			rs.getString("theme_name"),
-			rs.getLong("source_message_id"));
 
 	private final JdbcTemplate jdbc;
 	private final int dimensions;
@@ -85,14 +75,16 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 	public List<SavedItem> findNeedingEmbedding(long activeEmbeddingModelId) {
 		return jdbc.query(
 				"""
-						SELECT si.id, si.chat_id, si.url, si.body_text, si.theme_name, si.source_message_id
+						SELECT si.id, si.chat_id, si.url, si.body_text, si.theme_name, si.source_message_id,
+							si.user_lib_type, si.user_lib_item_id, si.source_type, si.title,
+							si.recommended_by, si.tags, si.search_text
 						FROM saved_items si
 						LEFT JOIN saved_item_embeddings e ON e.saved_item_id = si.id
 						WHERE e.saved_item_id IS NULL
 						   OR e.embedding_model_id IS DISTINCT FROM ?
 						ORDER BY si.id
 						""",
-				SAVED_ITEM_ROW,
+				JdbcSavedItemStore.ROW,
 				activeEmbeddingModelId);
 	}
 

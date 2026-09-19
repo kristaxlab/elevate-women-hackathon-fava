@@ -88,14 +88,14 @@ class CatalogSearchServiceTest {
 
 	@Test
 	void relevantHit_generatesAnswerWithCitationsFromOnlyThisCatalog() {
-		SavedItem mine = savedItems.save(new SavedItem(
+		SavedItem mine = savedItems.save(SavedItem.of(
 				null,
 				CHAT_ID,
 				Optional.of("https://example.com/pilates"),
 				"Pilates reformer tip for beginners",
 				"AI",
 				1L));
-		SavedItem other = savedItems.save(new SavedItem(
+		SavedItem other = savedItems.save(SavedItem.of(
 				null,
 				OTHER_CHAT,
 				Optional.of("https://other.example/pilates"),
@@ -121,7 +121,7 @@ class CatalogSearchServiceTest {
 
 	@Test
 	void noHitAboveThreshold_returnsNothingFound_withoutCallingChatModel() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT_ID, Optional.empty(), "unrelated cooking note", "AI", 3L));
 		float[] orthogonal = zeros();
 		orthogonal[0] = 1f;

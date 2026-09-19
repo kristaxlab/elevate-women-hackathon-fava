@@ -43,7 +43,7 @@ class JdbcSavedItemStoreTest {
 
 	@Test
 	void save_persistsSavedItem_retrievableByCatalogAndUrl() {
-		SavedItem saved = savedItemStore.save(new SavedItem(
+		SavedItem saved = savedItemStore.save(SavedItem.of(
 				null,
 				-100123L,
 				Optional.of("https://www.instagram.com/p/ABC/"),
@@ -64,7 +64,7 @@ class JdbcSavedItemStoreTest {
 
 	@Test
 	void findByCatalogAndUrl_doesNotMatchOtherCatalog() {
-		savedItemStore.save(new SavedItem(
+		savedItemStore.save(SavedItem.of(
 				null,
 				-100123L,
 				Optional.of("https://shared.example/x"),
@@ -77,7 +77,7 @@ class JdbcSavedItemStoreTest {
 
 	@Test
 	void save_withoutUrl_isPersistedAndNotFoundByUrlLookup() {
-		SavedItem saved = savedItemStore.save(new SavedItem(
+		SavedItem saved = savedItemStore.save(SavedItem.of(
 				null,
 				-100123L,
 				Optional.empty(),
@@ -86,6 +86,49 @@ class JdbcSavedItemStoreTest {
 				9L));
 
 		assertThat(saved.id()).isNotNull();
+		assertThat(savedItemStore.findById(saved.id())).contains(saved);
+	}
+
+	@Test
+	void save_withEnrichmentAndLibraryPointer_roundTripsAllNewFields() {
+		SavedItem saved = savedItemStore.save(new SavedItem(
+				null,
+				-100123L,
+				Optional.of("https://www.youtube.com/watch?v=abc"),
+				"raw caption",
+				"AI",
+				42L,
+				Optional.of("telegram"),
+				Optional.of("9001"),
+				Optional.of(SourceType.YOUTUBE),
+				Optional.of("Great talk on embeddings"),
+				Optional.of("Anna"),
+				List.of("ml", "talk"),
+				Optional.of("A YouTube talk about embeddings recommended by Anna")));
+
+		assertThat(saved.id()).isNotNull();
+		assertThat(savedItemStore.findById(saved.id())).contains(saved);
+		assertThat(savedItemStore.findByCatalogAndUrl(-100123L, "https://www.youtube.com/watch?v=abc"))
+				.contains(saved);
+	}
+
+	@Test
+	void save_withoutEnrichmentFields_roundTripsAsEmptyDefaults() {
+		SavedItem saved = savedItemStore.save(SavedItem.of(
+				null,
+				-100123L,
+				Optional.of("https://example.com/bare"),
+				"just a link",
+				"Fitness",
+				3L));
+
+		assertThat(saved.userLibType()).isEmpty();
+		assertThat(saved.userLibItemId()).isEmpty();
+		assertThat(saved.sourceType()).isEmpty();
+		assertThat(saved.title()).isEmpty();
+		assertThat(saved.recommendedBy()).isEmpty();
+		assertThat(saved.tags()).isEmpty();
+		assertThat(saved.searchText()).isEmpty();
 		assertThat(savedItemStore.findById(saved.id())).contains(saved);
 	}
 

@@ -274,7 +274,14 @@ class IntentRouterTest {
 					item.url(),
 					item.bodyText(),
 					item.themeName(),
-					item.sourceMessageId());
+					item.sourceMessageId(),
+					item.userLibType(),
+					item.userLibItemId(),
+					item.sourceType(),
+					item.title(),
+					item.recommendedBy(),
+					item.tags(),
+					item.searchText());
 			byId.put(stored.id(), stored);
 			return stored;
 		}

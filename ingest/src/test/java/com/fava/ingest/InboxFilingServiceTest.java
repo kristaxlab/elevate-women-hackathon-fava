@@ -92,7 +92,7 @@ class InboxFilingServiceTest {
 
 	@Test
 	void duplicateUrlInSameCatalog_skipsClassifyCopyAndReportsExistingTheme() {
-		savedItemStore.save(new SavedItem(
+		savedItemStore.save(SavedItem.of(
 				null,
 				CHAT_ID,
 				Optional.of("https://dup.example/x"),

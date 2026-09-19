@@ -49,9 +49,9 @@ class JdbcSavedItemEmbeddingStoreTest {
 
 	@Test
 	void upsert_thenFindSimilar_returnsItemForSameCatalogOnly() {
-		SavedItem itemA = savedItems.save(new SavedItem(
+		SavedItem itemA = savedItems.save(SavedItem.of(
 				null, CHAT_A, Optional.of("https://a.example/1"), "alpha tip", "AI", 1L));
-		SavedItem itemB = savedItems.save(new SavedItem(
+		SavedItem itemB = savedItems.save(SavedItem.of(
 				null, CHAT_B, Optional.of("https://b.example/1"), "alpha tip other catalog", "AI", 2L));
 
 		float[] vector = unitVector(1f, 0f, 0f);
@@ -66,7 +66,7 @@ class JdbcSavedItemEmbeddingStoreTest {
 
 	@Test
 	void findSimilar_excludesHitsAboveDistanceThreshold() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT_A, Optional.empty(), "orthogonal", "AI", 3L));
 		embeddings.upsert(item.id(), CHAT_A, pad(unitVector(0f, 1f, 0f)), modelId);
 

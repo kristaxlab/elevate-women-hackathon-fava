@@ -220,7 +220,7 @@ class GroupUpdateHandlerTest {
 	@Test
 	void inboxDuplicateUrl_reportsExistingThemeWithoutCopy() {
 		seedConfiguredCatalog();
-		savedItems.save(new SavedItem(
+		savedItems.save(SavedItem.of(
 				null,
 				CHAT_ID,
 				Optional.of("https://dup.example/a"),
@@ -530,7 +530,14 @@ class GroupUpdateHandlerTest {
 					item.url(),
 					item.bodyText(),
 					item.themeName(),
-					item.sourceMessageId());
+					item.sourceMessageId(),
+					item.userLibType(),
+					item.userLibItemId(),
+					item.sourceType(),
+					item.title(),
+					item.recommendedBy(),
+					item.tags(),
+					item.searchText());
 			byId.put(stored.id(), stored);
 			return stored;
 		}

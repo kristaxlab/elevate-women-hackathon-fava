@@ -50,7 +50,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 
 	@Test
 	void upsert_storesEmbeddingModelId_andFindSimilarWorks() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.empty(), "alpha", "AI", 1L));
 		float[] vector = ones(DIMS);
 		embeddings.upsert(item.id(), CHAT, vector, activeModel.id());
@@ -61,7 +61,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 
 	@Test
 	void upsert_rejectsWrongDimension() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.empty(), "alpha", "AI", 1L));
 		assertThatThrownBy(() -> embeddings.upsert(item.id(), CHAT, ones(3), activeModel.id()))
 				.isInstanceOf(IllegalArgumentException.class)
@@ -70,7 +70,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 
 	@Test
 	void deleteAll_removesEveryEmbedding() {
-		SavedItem item = savedItems.save(new SavedItem(
+		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.empty(), "alpha", "AI", 1L));
 		embeddings.upsert(item.id(), CHAT, ones(DIMS), activeModel.id());
 		embeddings.deleteAll();
@@ -80,11 +80,11 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 	@Test
 	void findNeedingEmbedding_returnsItemsMissingOrWrongModel() {
 		EmbeddingModel old = registry.activate(new EmbeddingSpace("old-model", DIMS), CatalogSyncStatus.SUCCEEDED);
-		SavedItem missing = savedItems.save(new SavedItem(
+		SavedItem missing = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://a.example"), "need embed", "AI", 1L));
-		SavedItem current = savedItems.save(new SavedItem(
+		SavedItem current = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://b.example"), "has embed", "AI", 2L));
-		SavedItem stale = savedItems.save(new SavedItem(
+		SavedItem stale = savedItems.save(SavedItem.of(
 				null, CHAT, Optional.of("https://c.example"), "stale embed", "AI", 3L));
 
 		embeddings.upsert(stale.id(), CHAT, ones(DIMS), old.id());

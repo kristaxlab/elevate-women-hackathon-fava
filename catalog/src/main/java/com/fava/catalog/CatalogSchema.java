@@ -62,9 +62,17 @@ public final class CatalogSchema {
 					body_text TEXT NOT NULL,
 					theme_name TEXT NOT NULL,
 					source_message_id BIGINT NOT NULL,
+					user_lib_type TEXT,
+					user_lib_item_id TEXT,
+					source_type TEXT,
+					title TEXT,
+					recommended_by TEXT,
+					tags TEXT[] NOT NULL DEFAULT '{}',
+					search_text TEXT,
 					created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 				)
 				""");
+		ensureSavedItemExpandColumns(jdbc);
 		jdbc.execute("""
 				CREATE UNIQUE INDEX IF NOT EXISTS saved_items_chat_url_uidx
 				ON saved_items (chat_id, url)
@@ -86,6 +94,17 @@ public final class CatalogSchema {
 				""");
 		jdbc.execute("CREATE EXTENSION IF NOT EXISTS vector");
 		ensureEmbeddingsTable(jdbc, embeddingDimensions);
+	}
+
+	/** Expand-phase columns for user_lib pointer + enrichment (idempotent on existing catalogs). */
+	private static void ensureSavedItemExpandColumns(JdbcTemplate jdbc) {
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS user_lib_type TEXT");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS user_lib_item_id TEXT");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS source_type TEXT");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS title TEXT");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS recommended_by TEXT");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'");
+		jdbc.execute("ALTER TABLE saved_items ADD COLUMN IF NOT EXISTS search_text TEXT");
 	}
 
 	/**
