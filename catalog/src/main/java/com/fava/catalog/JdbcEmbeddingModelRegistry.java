@@ -40,7 +40,7 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 	}
 
 	@Override
-	public EmbeddingModel activate(String modelId, int dimensions, CatalogSyncStatus status) {
+	public EmbeddingModel activate(EmbeddingSpace space, CatalogSyncStatus status) {
 		jdbc.update("UPDATE embedding_models SET is_active = FALSE WHERE is_active = TRUE");
 		KeyHolder keys = new GeneratedKeyHolder();
 		jdbc.update(connection -> {
@@ -50,8 +50,8 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 							VALUES (?, ?, TRUE, ?)
 							""",
 					new String[] {"id"});
-			ps.setString(1, modelId);
-			ps.setInt(2, dimensions);
+			ps.setString(1, space.modelId());
+			ps.setInt(2, space.dimensions());
 			ps.setString(3, status.name());
 			return ps;
 		}, keys);
@@ -59,7 +59,7 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 		if (key == null) {
 			throw new IllegalStateException("embedding_models insert returned no id");
 		}
-		return new EmbeddingModel(key.longValue(), modelId, dimensions, true, status);
+		return new EmbeddingModel(key.longValue(), space.modelId(), space.dimensions(), true, status);
 	}
 
 	@Override

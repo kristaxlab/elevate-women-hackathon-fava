@@ -1,6 +1,7 @@
 package com.fava.search;
 
 import com.fava.catalog.EmbeddingModelRegistry;
+import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.NoOpSavedItemIndexer;
 import com.fava.catalog.SavedItemEmbeddingStore;
 import com.fava.catalog.SavedItemIndexer;
@@ -22,24 +23,34 @@ import tools.jackson.databind.ObjectMapper;
 public class SearchConfiguration {
 
 	@Bean
-	SavedItemIndexer savedItemIndexer(
-			OpenRouterProperties properties,
-			SavedItemEmbeddingStore embeddingStore,
-			EmbeddingModelRegistry embeddingModelRegistry,
-			ObjectMapper objectMapper) {
+	EmbeddingPort embeddingPort(OpenRouterProperties properties, ObjectMapper objectMapper) {
 		if (!properties.hasApiKey()) {
-			return new NoOpSavedItemIndexer();
+			return text -> {
+				throw new IllegalStateException("OpenRouter API key not configured");
+			};
 		}
-		EmbeddingPort embeddingPort = new OpenAiCompatibleEmbeddingModel(
+		return new OpenAiCompatibleEmbeddingModel(
 				properties.apiKey(),
 				properties.baseUrl(),
 				properties.embeddingModel(),
 				objectMapper);
+	}
+
+	@Bean
+	SavedItemIndexer savedItemIndexer(
+			OpenRouterProperties properties,
+			SavedItemEmbeddingStore embeddingStore,
+			EmbeddingModelRegistry embeddingModelRegistry,
+			EmbeddingPort embeddingPort) {
+		if (!properties.hasApiKey()) {
+			return new NoOpSavedItemIndexer();
+		}
+		EmbeddingSpace space = EmbeddingSpace.from(properties);
 		return new EmbeddingSavedItemIndexer(
 				embeddingPort,
 				embeddingStore,
 				embeddingModelRegistry,
-				properties.embeddingDimensions());
+				space.dimensions());
 	}
 
 	@Bean
@@ -47,15 +58,11 @@ public class SearchConfiguration {
 			OpenRouterProperties properties,
 			SavedItemEmbeddingStore embeddingStore,
 			SavedItemStore savedItemStore,
+			EmbeddingPort embeddingPort,
 			ObjectMapper objectMapper) {
 		if (!properties.hasApiKey()) {
 			return new KeywordCatalogSearchService(savedItemStore, CatalogSearchService.DEFAULT_TOP_K);
 		}
-		EmbeddingPort embeddingPort = new OpenAiCompatibleEmbeddingModel(
-				properties.apiKey(),
-				properties.baseUrl(),
-				properties.embeddingModel(),
-				objectMapper);
 		ChatModelPort chatModel = new OpenAiCompatibleChatModel(
 				properties.apiKey(),
 				properties.baseUrl(),
@@ -76,24 +83,20 @@ public class SearchConfiguration {
 			DataSource dataSource,
 			EmbeddingModelRegistry embeddingModelRegistry,
 			SavedItemEmbeddingStore embeddingStore,
-			ObjectMapper objectMapper) {
+			EmbeddingPort embeddingPort) {
 		return args -> {
 			if (!properties.hasApiKey()) {
 				// Degraded mode: no vectors; registry sync waits until an API key is configured.
 				return;
 			}
-			EmbeddingPort embeddingPort = new OpenAiCompatibleEmbeddingModel(
-					properties.apiKey(),
-					properties.baseUrl(),
-					properties.embeddingModel(),
-					objectMapper);
+			EmbeddingSpace space = EmbeddingSpace.from(properties);
 			new CatalogEmbeddingSync(
 					dataSource,
 					embeddingModelRegistry,
 					embeddingStore,
 					embeddingPort,
-					properties.embeddingDimensions())
-					.ensureSynced(properties.embeddingModel(), properties.embeddingDimensions());
+					space)
+					.ensureSynced(space);
 		};
 	}
 }

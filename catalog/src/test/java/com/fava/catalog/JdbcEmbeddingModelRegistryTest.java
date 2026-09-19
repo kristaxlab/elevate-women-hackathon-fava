@@ -43,7 +43,7 @@ class JdbcEmbeddingModelRegistryTest {
 
 	@Test
 	void activate_insertsSoleActiveModel() {
-		EmbeddingModel activated = registry.activate("openai/text-embedding-3-small", 1536, CatalogSyncStatus.PENDING);
+		EmbeddingModel activated = registry.activate(new EmbeddingSpace("openai/text-embedding-3-small", 1536), CatalogSyncStatus.PENDING);
 
 		Optional<EmbeddingModel> active = registry.findActive();
 		assertThat(active).isPresent();
@@ -56,8 +56,8 @@ class JdbcEmbeddingModelRegistryTest {
 
 	@Test
 	void activate_deactivatesPreviousActiveModel() {
-		EmbeddingModel first = registry.activate("model-a", 8, CatalogSyncStatus.SUCCEEDED);
-		EmbeddingModel second = registry.activate("model-b", 16, CatalogSyncStatus.IN_PROGRESS);
+		EmbeddingModel first = registry.activate(new EmbeddingSpace("model-a", 8), CatalogSyncStatus.SUCCEEDED);
+		EmbeddingModel second = registry.activate(new EmbeddingSpace("model-b", 16), CatalogSyncStatus.IN_PROGRESS);
 
 		assertThat(registry.findActive()).hasValueSatisfying(m -> {
 			assertThat(m.id()).isEqualTo(second.id());
@@ -71,7 +71,7 @@ class JdbcEmbeddingModelRegistryTest {
 
 	@Test
 	void updateSyncStatus_changesActiveModelStatus() {
-		EmbeddingModel model = registry.activate("model-a", 8, CatalogSyncStatus.IN_PROGRESS);
+		EmbeddingModel model = registry.activate(new EmbeddingSpace("model-a", 8), CatalogSyncStatus.IN_PROGRESS);
 		registry.updateSyncStatus(model.id(), CatalogSyncStatus.FAILED);
 
 		assertThat(registry.findActive()).hasValueSatisfying(m ->
@@ -80,7 +80,7 @@ class JdbcEmbeddingModelRegistryTest {
 
 	@Test
 	void onlyOneActive_enforcedByDatabase() {
-		registry.activate("model-a", 8, CatalogSyncStatus.SUCCEEDED);
+		registry.activate(new EmbeddingSpace("model-a", 8), CatalogSyncStatus.SUCCEEDED);
 		assertThatThrownBy(() -> jdbc.update(
 						"""
 								INSERT INTO embedding_models (model_id, dimensions, is_active, catalog_sync_status)

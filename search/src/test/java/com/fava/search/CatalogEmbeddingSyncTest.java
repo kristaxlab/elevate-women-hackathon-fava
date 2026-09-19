@@ -9,6 +9,7 @@ import com.fava.catalog.CatalogStore;
 import com.fava.catalog.CatalogSyncStatus;
 import com.fava.catalog.EmbeddingModel;
 import com.fava.catalog.EmbeddingModelRegistry;
+import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.JdbcCatalogStore;
 import com.fava.catalog.JdbcEmbeddingModelRegistry;
 import com.fava.catalog.JdbcSavedItemEmbeddingStore;
@@ -35,6 +36,8 @@ import org.testcontainers.utility.DockerImageName;
 class CatalogEmbeddingSyncTest {
 
 	private static final int DIMS = 8;
+	private static final EmbeddingSpace SPACE_A = new EmbeddingSpace("model-a", DIMS);
+	private static final EmbeddingSpace SPACE_B = new EmbeddingSpace("model-b", DIMS);
 	private static final long CHAT = -100123L;
 
 	@Container
@@ -54,16 +57,16 @@ class CatalogEmbeddingSyncTest {
 	@BeforeEach
 	void setUp() {
 		dataSource = dataSource();
-		CatalogSchema.ensure(dataSource, DIMS);
+		CatalogSchema.ensure(dataSource, SPACE_A);
 		new JdbcTemplate(dataSource)
 				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs, embedding_models CASCADE");
 		registry = new JdbcEmbeddingModelRegistry(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
-		embeddings = new JdbcSavedItemEmbeddingStore(dataSource, DIMS);
+		embeddings = new JdbcSavedItemEmbeddingStore(dataSource, SPACE_A);
 		embeddingPort = new FixedEmbeddingPort(ones(DIMS));
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		catalogs.create(new Catalog(CHAT, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));
-		sync = new CatalogEmbeddingSync(dataSource, registry, embeddings, embeddingPort, DIMS);
+		sync = new CatalogEmbeddingSync(dataSource, registry, embeddings, embeddingPort, SPACE_A);
 	}
 
 	@Test
@@ -71,7 +74,7 @@ class CatalogEmbeddingSyncTest {
 		SavedItem item = savedItems.save(new SavedItem(
 				null, CHAT, Optional.of("https://a.example"), "alpha body", "AI", 1L));
 
-		sync.ensureSynced("model-a", DIMS);
+		sync.ensureSynced(SPACE_A);
 
 		EmbeddingModel active = registry.findActive().orElseThrow();
 		assertThat(active.modelId()).isEqualTo("model-a");
@@ -85,15 +88,15 @@ class CatalogEmbeddingSyncTest {
 
 	@Test
 	void modelChange_wipesAndReembedsWithNewModel() {
-		sync.ensureSynced("model-a", DIMS);
+		sync.ensureSynced(SPACE_A);
 		SavedItem item = savedItems.save(new SavedItem(
 				null, CHAT, Optional.empty(), "body", "AI", 1L));
 		new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, DIMS).index(item);
 		assertThat(embeddings.findNeedingEmbedding(registry.findActive().orElseThrow().id())).isEmpty();
 
 		FixedEmbeddingPort other = new FixedEmbeddingPort(twos(DIMS));
-		CatalogEmbeddingSync resync = new CatalogEmbeddingSync(dataSource, registry, embeddings, other, DIMS);
-		resync.ensureSynced("model-b", DIMS);
+		CatalogEmbeddingSync resync = new CatalogEmbeddingSync(dataSource, registry, embeddings, other, SPACE_B);
+		resync.ensureSynced(SPACE_B);
 
 		EmbeddingModel active = registry.findActive().orElseThrow();
 		assertThat(active.modelId()).isEqualTo("model-b");
@@ -110,8 +113,8 @@ class CatalogEmbeddingSyncTest {
 				null, CHAT, Optional.of("https://2.example"), "two", "AI", 2L));
 
 		FailAfterOnePort flaky = new FailAfterOnePort(ones(DIMS));
-		CatalogEmbeddingSync failing = new CatalogEmbeddingSync(dataSource, registry, embeddings, flaky, DIMS);
-		assertThatThrownBy(() -> failing.ensureSynced("model-a", DIMS))
+		CatalogEmbeddingSync failing = new CatalogEmbeddingSync(dataSource, registry, embeddings, flaky, SPACE_A);
+		assertThatThrownBy(() -> failing.ensureSynced(SPACE_A))
 				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("Catalog embedding sync failed");
 
@@ -120,8 +123,8 @@ class CatalogEmbeddingSyncTest {
 		assertThat(embeddings.findNeedingEmbedding(active.id())).hasSize(1);
 
 		CatalogEmbeddingSync resume = new CatalogEmbeddingSync(
-				dataSource, registry, embeddings, new FixedEmbeddingPort(ones(DIMS)), DIMS);
-		resume.ensureSynced("model-a", DIMS);
+				dataSource, registry, embeddings, new FixedEmbeddingPort(ones(DIMS)), SPACE_A);
+		resume.ensureSynced(SPACE_A);
 
 		active = registry.findActive().orElseThrow();
 		assertThat(active.catalogSyncStatus()).isEqualTo(CatalogSyncStatus.SUCCEEDED);
@@ -133,19 +136,19 @@ class CatalogEmbeddingSyncTest {
 
 	@Test
 	void dimensionChange_recreatesTableAndSucceeds() {
-		sync.ensureSynced("model-a", DIMS);
+		sync.ensureSynced(SPACE_A);
 		SavedItem item = savedItems.save(new SavedItem(
 				null, CHAT, Optional.empty(), "body", "AI", 1L));
 		new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, DIMS).index(item);
 
-		int newDims = 4;
-		SavedItemEmbeddingStore newStore = new JdbcSavedItemEmbeddingStore(dataSource, newDims);
+		EmbeddingSpace newSpace = new EmbeddingSpace("model-a", 4);
+		SavedItemEmbeddingStore newStore = new JdbcSavedItemEmbeddingStore(dataSource, newSpace);
 		CatalogEmbeddingSync dimSync = new CatalogEmbeddingSync(
-				dataSource, registry, newStore, new FixedEmbeddingPort(ones(newDims)), newDims);
-		dimSync.ensureSynced("model-a", newDims);
+				dataSource, registry, newStore, new FixedEmbeddingPort(ones(4)), newSpace);
+		dimSync.ensureSynced(newSpace);
 
 		EmbeddingModel active = registry.findActive().orElseThrow();
-		assertThat(active.dimensions()).isEqualTo(newDims);
+		assertThat(active.dimensions()).isEqualTo(4);
 		assertThat(active.catalogSyncStatus()).isEqualTo(CatalogSyncStatus.SUCCEEDED);
 		assertThat(newStore.findNeedingEmbedding(active.id())).isEmpty();
 	}

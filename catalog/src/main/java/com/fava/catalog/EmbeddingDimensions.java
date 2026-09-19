@@ -5,11 +5,8 @@ package com.fava.catalog;
  */
 public final class EmbeddingDimensions {
 
-	/** Default dimension count for {@code openai/text-embedding-3-small}. */
+	/** Default dimension count for {@link EmbeddingSpace#DEFAULT}. */
 	public static final int DEFAULT = 1536;
-
-	/** Alias for {@link #DEFAULT} (openai/text-embedding-3-small). */
-	public static final int OPENAI_TEXT_EMBEDDING_3_SMALL = DEFAULT;
 
 	private EmbeddingDimensions() {
 	}

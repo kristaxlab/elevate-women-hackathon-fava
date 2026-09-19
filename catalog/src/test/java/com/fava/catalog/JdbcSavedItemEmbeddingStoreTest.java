@@ -41,7 +41,7 @@ class JdbcSavedItemEmbeddingStoreTest {
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
 		modelId = new JdbcEmbeddingModelRegistry(dataSource)
-				.activate("test-model", EmbeddingDimensions.DEFAULT, CatalogSyncStatus.SUCCEEDED)
+				.activate(new EmbeddingSpace("test-model", EmbeddingDimensions.DEFAULT), CatalogSyncStatus.SUCCEEDED)
 				.id();
 		catalogs.create(new Catalog(CHAT_A, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));
 		catalogs.create(new Catalog(CHAT_B, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));

@@ -10,9 +10,9 @@ public interface EmbeddingModelRegistry {
 	Optional<EmbeddingModel> findActive();
 
 	/**
-	 * Inserts {@code modelId}/{@code dimensions} as the sole active model (deactivates any prior active).
+	 * Inserts {@code space} as the sole active model (deactivates any prior active).
 	 */
-	EmbeddingModel activate(String modelId, int dimensions, CatalogSyncStatus status);
+	EmbeddingModel activate(EmbeddingSpace space, CatalogSyncStatus status);
 
 	void updateSyncStatus(long id, CatalogSyncStatus status);
 }

@@ -43,7 +43,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		registry = new JdbcEmbeddingModelRegistry(dataSource);
-		activeModel = registry.activate("test-model", DIMS, CatalogSyncStatus.IN_PROGRESS);
+		activeModel = registry.activate(new EmbeddingSpace("test-model", DIMS), CatalogSyncStatus.IN_PROGRESS);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource, DIMS);
 		catalogs.create(new Catalog(CHAT, 11L, 22L, List.of(new ThemeTopic("AI", 31L))));
 	}
@@ -79,7 +79,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 
 	@Test
 	void findNeedingEmbedding_returnsItemsMissingOrWrongModel() {
-		EmbeddingModel old = registry.activate("old-model", DIMS, CatalogSyncStatus.SUCCEEDED);
+		EmbeddingModel old = registry.activate(new EmbeddingSpace("old-model", DIMS), CatalogSyncStatus.SUCCEEDED);
 		SavedItem missing = savedItems.save(new SavedItem(
 				null, CHAT, Optional.of("https://a.example"), "need embed", "AI", 1L));
 		SavedItem current = savedItems.save(new SavedItem(
@@ -88,7 +88,7 @@ class JdbcSavedItemEmbeddingStoreModelTest {
 				null, CHAT, Optional.of("https://c.example"), "stale embed", "AI", 3L));
 
 		embeddings.upsert(stale.id(), CHAT, ones(DIMS), old.id());
-		activeModel = registry.activate("test-model", DIMS, CatalogSyncStatus.IN_PROGRESS);
+		activeModel = registry.activate(new EmbeddingSpace("test-model", DIMS), CatalogSyncStatus.IN_PROGRESS);
 		embeddings.upsert(current.id(), CHAT, ones(DIMS), activeModel.id());
 
 		List<SavedItem> needing = embeddings.findNeedingEmbedding(activeModel.id());

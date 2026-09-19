@@ -40,7 +40,8 @@ public final class EmbeddingSavedItemIndexer implements SavedItemIndexer {
 		float[] vector = embeddings.embed(text);
 		if (vector.length != expectedDimensions) {
 			throw new IllegalStateException(
-					"embedding length " + vector.length + " != " + expectedDimensions);
+					"embedding length " + vector.length + " != " + expectedDimensions
+							+ " (set fava.openrouter.embedding-dimensions / FAVA_OPENROUTER_EMBEDDING_DIMENSIONS to match the model)");
 		}
 		store.upsert(item.id(), item.chatId(), vector, active.id());
 	}

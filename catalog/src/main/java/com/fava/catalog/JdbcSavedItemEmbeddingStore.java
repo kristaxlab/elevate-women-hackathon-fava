@@ -22,16 +22,17 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 	private final JdbcTemplate jdbc;
 	private final int dimensions;
 
+	public JdbcSavedItemEmbeddingStore(DataSource dataSource, EmbeddingSpace space) {
+		this(dataSource, space.dimensions());
+	}
+
 	public JdbcSavedItemEmbeddingStore(DataSource dataSource, int dimensions) {
-		if (dimensions <= 0) {
-			throw new IllegalArgumentException("dimensions must be positive");
-		}
+		this.dimensions = new EmbeddingSpace(EmbeddingSpace.DEFAULT.modelId(), dimensions).dimensions();
 		this.jdbc = new JdbcTemplate(dataSource);
-		this.dimensions = dimensions;
 	}
 
 	public JdbcSavedItemEmbeddingStore(DataSource dataSource) {
-		this(dataSource, EmbeddingDimensions.DEFAULT);
+		this(dataSource, EmbeddingSpace.DEFAULT);
 	}
 
 	@Override

@@ -8,6 +8,7 @@ import com.fava.catalog.CatalogStore;
 import com.fava.catalog.CatalogSyncStatus;
 import com.fava.catalog.EmbeddingDimensions;
 import com.fava.catalog.EmbeddingModelRegistry;
+import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.JdbcCatalogStore;
 import com.fava.catalog.JdbcEmbeddingModelRegistry;
 import com.fava.catalog.JdbcSavedItemEmbeddingStore;
@@ -57,7 +58,7 @@ class EmbeddingSavedItemIndexerTest {
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
 		EmbeddingModelRegistry registry = new JdbcEmbeddingModelRegistry(dataSource);
-		registry.activate("test-model", EmbeddingDimensions.DEFAULT, CatalogSyncStatus.SUCCEEDED);
+		registry.activate(new EmbeddingSpace("test-model", EmbeddingDimensions.DEFAULT), CatalogSyncStatus.SUCCEEDED);
 		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
 		indexer = new EmbeddingSavedItemIndexer(
 				new FixedEmbeddingPort(ones()), embeddings, registry, EmbeddingDimensions.DEFAULT);

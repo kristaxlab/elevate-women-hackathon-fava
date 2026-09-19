@@ -13,21 +13,28 @@ public final class CatalogSchema {
 
 	/**
 	 * Ensures core Catalog tables and an embeddings table sized to
-	 * {@link EmbeddingDimensions#DEFAULT}.
+	 * {@link EmbeddingSpace#DEFAULT}.
 	 */
 	public static void ensure(DataSource dataSource) {
-		ensure(dataSource, EmbeddingDimensions.DEFAULT);
+		ensure(dataSource, EmbeddingSpace.DEFAULT);
 	}
 
 	/**
 	 * Ensures core Catalog tables, the embedding-models registry, and
-	 * {@code saved_item_embeddings} with the given vector dimensions.
-	 * If the embeddings table already exists with a different dimension, it is dropped and recreated.
+	 * {@code saved_item_embeddings} sized to {@code space.dimensions()}.
+	 * If the embeddings table already exists with a different dimension (or without
+	 * {@code embedding_model_id}), it is dropped and recreated.
+	 */
+	public static void ensure(DataSource dataSource, EmbeddingSpace space) {
+		ensure(dataSource, space.dimensions());
+	}
+
+	/**
+	 * @see #ensure(DataSource, EmbeddingSpace)
 	 */
 	public static void ensure(DataSource dataSource, int embeddingDimensions) {
-		if (embeddingDimensions <= 0) {
-			throw new IllegalArgumentException("embeddingDimensions must be positive");
-		}
+		// Validate via EmbeddingSpace (positive dimensions).
+		new EmbeddingSpace(EmbeddingSpace.DEFAULT.modelId(), embeddingDimensions);
 		JdbcTemplate jdbc = new JdbcTemplate(dataSource);
 		jdbc.execute("""
 				CREATE TABLE IF NOT EXISTS catalogs (

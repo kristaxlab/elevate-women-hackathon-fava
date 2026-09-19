@@ -7,6 +7,7 @@ import com.fava.catalog.CatalogSchema;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.CatalogSyncStatus;
 import com.fava.catalog.EmbeddingDimensions;
+import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.JdbcCatalogStore;
 import com.fava.catalog.JdbcEmbeddingModelRegistry;
 import com.fava.catalog.JdbcSavedItemEmbeddingStore;
@@ -61,7 +62,7 @@ class CatalogSearchServiceTest {
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
 		modelId = new JdbcEmbeddingModelRegistry(dataSource)
-				.activate("test-model", EmbeddingDimensions.DEFAULT, CatalogSyncStatus.SUCCEEDED)
+				.activate(new EmbeddingSpace("test-model", EmbeddingDimensions.DEFAULT), CatalogSyncStatus.SUCCEEDED)
 				.id();
 		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
 		catalogs.create(new Catalog(OTHER_CHAT, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
@@ -133,13 +134,13 @@ class CatalogSearchServiceTest {
 	}
 
 	private static float[] ones() {
-		float[] v = new float[EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL];
+		float[] v = new float[EmbeddingDimensions.DEFAULT];
 		Arrays.fill(v, 1f / (float) Math.sqrt(v.length));
 		return v;
 	}
 
 	private static float[] zeros() {
-		return new float[EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL];
+		return new float[EmbeddingDimensions.DEFAULT];
 	}
 
 	private static DataSource dataSource() {

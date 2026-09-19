@@ -4,6 +4,7 @@ import com.fava.catalog.CatalogSchema;
 import com.fava.catalog.CatalogSyncStatus;
 import com.fava.catalog.EmbeddingModel;
 import com.fava.catalog.EmbeddingModelRegistry;
+import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemEmbeddingStore;
 import com.fava.classify.EmbeddingPort;
@@ -20,47 +21,45 @@ public final class CatalogEmbeddingSync {
 	private final EmbeddingModelRegistry registry;
 	private final SavedItemEmbeddingStore embeddings;
 	private final EmbeddingPort embeddingPort;
-	private final int configuredDimensions;
+	private final EmbeddingSpace storeSpace;
 
 	public CatalogEmbeddingSync(
 			DataSource dataSource,
 			EmbeddingModelRegistry registry,
 			SavedItemEmbeddingStore embeddings,
 			EmbeddingPort embeddingPort,
-			int configuredDimensions) {
+			EmbeddingSpace storeSpace) {
 		this.dataSource = dataSource;
 		this.registry = registry;
 		this.embeddings = embeddings;
 		this.embeddingPort = embeddingPort;
-		this.configuredDimensions = configuredDimensions;
+		this.storeSpace = storeSpace;
 	}
 
 	/**
-	 * Aligns registry and embeddings with {@code configuredModelId}/{@code configuredDimensions}.
+	 * Aligns registry and embeddings with {@code configured}.
 	 * Throws if sync fails after marking the active model {@link CatalogSyncStatus#FAILED}.
 	 */
-	public void ensureSynced(String configuredModelId, int configuredDimensions) {
-		if (configuredDimensions != this.configuredDimensions) {
+	public void ensureSynced(EmbeddingSpace configured) {
+		if (!configured.equals(storeSpace)) {
 			throw new IllegalArgumentException(
-					"configuredDimensions " + configuredDimensions + " != store dimensions " + this.configuredDimensions);
+					"configured space " + configured + " != store space " + storeSpace);
 		}
 		Optional<EmbeddingModel> activeOpt = registry.findActive();
 		if (activeOpt.isEmpty()) {
-			EmbeddingModel model = registry.activate(configuredModelId, configuredDimensions, CatalogSyncStatus.IN_PROGRESS);
+			EmbeddingModel model = registry.activate(configured, CatalogSyncStatus.PENDING);
 			reindexAllNeeding(model);
 			return;
 		}
 
 		EmbeddingModel active = activeOpt.get();
-		boolean changed = !active.modelId().equals(configuredModelId) || active.dimensions() != configuredDimensions;
-		if (changed) {
-			if (active.dimensions() != configuredDimensions) {
-				CatalogSchema.recreateEmbeddingsTable(dataSource, configuredDimensions);
+		if (configured.differsFrom(active)) {
+			if (active.dimensions() != configured.dimensions()) {
+				CatalogSchema.recreateEmbeddingsTable(dataSource, configured.dimensions());
 			} else {
 				embeddings.deleteAll();
 			}
-			EmbeddingModel model =
-					registry.activate(configuredModelId, configuredDimensions, CatalogSyncStatus.IN_PROGRESS);
+			EmbeddingModel model = registry.activate(configured, CatalogSyncStatus.PENDING);
 			reindexAllNeeding(model);
 			return;
 		}
@@ -69,13 +68,13 @@ public final class CatalogEmbeddingSync {
 			return;
 		}
 
-		registry.updateSyncStatus(active.id(), CatalogSyncStatus.IN_PROGRESS);
 		reindexAllNeeding(active);
 	}
 
 	private void reindexAllNeeding(EmbeddingModel model) {
+		registry.updateSyncStatus(model.id(), CatalogSyncStatus.IN_PROGRESS);
 		EmbeddingSavedItemIndexer indexer =
-				new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, configuredDimensions);
+				new EmbeddingSavedItemIndexer(embeddingPort, embeddings, registry, storeSpace.dimensions());
 		try {
 			for (SavedItem item : embeddings.findNeedingEmbedding(model.id())) {
 				indexer.index(item);
