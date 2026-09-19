@@ -68,6 +68,7 @@ class InboxFilingServiceTest {
 	@Test
 	void confidentDecision_filesChosenTheme_persists_copiesAndReplies() {
 		classifier.next = new ClassifierDecision.Confident("Fitness");
+		telegram.nextCopyMessageId = Optional.of(9001L);
 		AcceptedDraft draft = new AcceptedDraft(
 				CHAT_ID,
 				7L,
@@ -79,15 +80,40 @@ class InboxFilingServiceTest {
 
 		assertThat(result).isInstanceOf(FilingResult.Filed.class);
 		assertThat(((FilingResult.Filed) result).themeName()).isEqualTo("Fitness");
-		assertThat(savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://www.instagram.com/p/NEW/"))
-				.isPresent()
-				.get()
-				.extracting(SavedItem::themeName)
-				.isEqualTo("Fitness");
+		SavedItem stored = savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://www.instagram.com/p/NEW/")
+				.orElseThrow();
+		assertThat(stored.themeName()).isEqualTo("Fitness");
+		assertThat(stored.sourceMessageId()).isEqualTo(7L);
+		assertThat(stored.userLibType()).contains("telegram");
+		assertThat(stored.userLibItemId()).contains("9001");
+		assertThat(((FilingResult.Filed) result).item()).isEqualTo(stored);
 		assertThat(telegram.copies).containsExactly(new RecordingFilingPort.Copy(CHAT_ID, 7L, 32L));
 		assertThat(telegram.replies).containsExactly(
 				new RecordingFilingPort.Reply(CHAT_ID, 7L, "Filed → Fitness"));
 		assertThat(telegram.buttonReplies).isEmpty();
+	}
+
+	@Test
+	void confidentDecision_whenCopyMessageIdMissing_stillFilesWithoutUserLibPointer() {
+		classifier.next = new ClassifierDecision.Confident("AI");
+		telegram.nextCopyMessageId = Optional.empty();
+		AcceptedDraft draft = new AcceptedDraft(
+				CHAT_ID,
+				11L,
+				INBOX_THREAD,
+				Optional.of("https://example.com/no-copy-id"),
+				"https://example.com/no-copy-id");
+
+		FilingResult result = filing.file(draft, catalog);
+
+		assertThat(result).isInstanceOf(FilingResult.Filed.class);
+		SavedItem stored = savedItemStore.findByCatalogAndUrl(CHAT_ID, "https://example.com/no-copy-id")
+				.orElseThrow();
+		assertThat(stored.sourceMessageId()).isEqualTo(11L);
+		assertThat(stored.userLibType()).isEmpty();
+		assertThat(stored.userLibItemId()).isEmpty();
+		assertThat(telegram.replies).containsExactly(
+				new RecordingFilingPort.Reply(CHAT_ID, 11L, "Filed → AI"));
 	}
 
 	@Test
@@ -239,10 +265,12 @@ class InboxFilingServiceTest {
 		final List<Reply> replies = new ArrayList<>();
 		final List<ButtonReply> buttonReplies = new ArrayList<>();
 		final List<String> answeredCallbacks = new ArrayList<>();
+		Optional<Long> nextCopyMessageId = Optional.of(555L);
 
 		@Override
-		public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
+		public Optional<Long> copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
 			copies.add(new Copy(chatId, fromMessageId, messageThreadId));
+			return nextCopyMessageId;
 		}
 
 		@Override

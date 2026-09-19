@@ -22,6 +22,8 @@ public record SavedItem(
 		List<String> tags,
 		Optional<String> searchText) {
 
+	public static final String USER_LIB_TYPE_TELEGRAM = "telegram";
+
 	/**
 	 * Minimal Saved Item before user_lib / enrichment fields are set (expand-phase callers).
 	 */

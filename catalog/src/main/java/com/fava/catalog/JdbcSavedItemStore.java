@@ -114,6 +114,29 @@ public final class JdbcSavedItemStore implements SavedItemStore {
 	}
 
 	@Override
+	public SavedItem updateUserLib(long id, String userLibType, String userLibItemId) {
+		if (userLibType == null || userLibType.isBlank()) {
+			throw new IllegalArgumentException("userLibType must not be blank");
+		}
+		if (userLibItemId == null || userLibItemId.isBlank()) {
+			throw new IllegalArgumentException("userLibItemId must not be blank");
+		}
+		int updated = jdbc.update(
+				"""
+						UPDATE saved_items
+						SET user_lib_type = ?, user_lib_item_id = ?
+						WHERE id = ?
+						""",
+				userLibType,
+				userLibItemId,
+				id);
+		if (updated != 1) {
+			throw new IllegalStateException("saved_items updateUserLib affected " + updated + " rows for id " + id);
+		}
+		return findById(id).orElseThrow(() -> new IllegalStateException("saved_items missing after updateUserLib: " + id));
+	}
+
+	@Override
 	public Optional<SavedItem> findByCatalogAndUrl(long chatId, String url) {
 		if (url == null || url.isBlank()) {
 			return Optional.empty();

@@ -118,8 +118,13 @@ public final class InboxFilingService {
 				draft.bodyText(),
 				theme.name(),
 				draft.sourceMessageId()));
+		Optional<Long> copyMessageId =
+				filingPort.copyMessageToThread(catalog.chatId(), draft.sourceMessageId(), theme.threadId());
+		if (copyMessageId.isPresent()) {
+			saved = savedItems.updateUserLib(
+					saved.id(), SavedItem.USER_LIB_TYPE_TELEGRAM, Long.toString(copyMessageId.get()));
+		}
 		savedItemIndexer.index(saved);
-		filingPort.copyMessageToThread(catalog.chatId(), draft.sourceMessageId(), theme.threadId());
 		filingPort.replyToMessage(draft.chatId(), draft.sourceMessageId(), FILED_PREFIX + theme.name());
 		return new FilingResult.Filed(theme.name(), saved);
 	}

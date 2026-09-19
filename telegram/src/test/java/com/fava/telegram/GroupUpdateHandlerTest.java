@@ -447,8 +447,9 @@ class GroupUpdateHandlerTest {
 		}
 
 		@Override
-		public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
+		public Optional<Long> copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
 			copies.add(new Copy(chatId, fromMessageId, messageThreadId));
+			return Optional.of(777L);
 		}
 
 		@Override
@@ -540,6 +541,30 @@ class GroupUpdateHandlerTest {
 					item.searchText());
 			byId.put(stored.id(), stored);
 			return stored;
+		}
+
+		@Override
+		public SavedItem updateUserLib(long id, String userLibType, String userLibItemId) {
+			SavedItem existing = byId.get(id);
+			if (existing == null) {
+				throw new IllegalStateException("missing saved item " + id);
+			}
+			SavedItem updated = new SavedItem(
+					existing.id(),
+					existing.chatId(),
+					existing.url(),
+					existing.bodyText(),
+					existing.themeName(),
+					existing.sourceMessageId(),
+					Optional.of(userLibType),
+					Optional.of(userLibItemId),
+					existing.sourceType(),
+					existing.title(),
+					existing.recommendedBy(),
+					existing.tags(),
+					existing.searchText());
+			byId.put(id, updated);
+			return updated;
 		}
 
 		@Override

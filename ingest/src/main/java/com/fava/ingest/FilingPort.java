@@ -1,6 +1,7 @@
 package com.fava.ingest;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Outbound seam for Filing: copy Source Message into a Theme Topic thread, reply on Inbox,
@@ -9,7 +10,12 @@ import java.util.List;
  */
 public interface FilingPort {
 
-	void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId);
+	/**
+	 * Copies the Source Message into a Theme Topic thread.
+	 *
+	 * @return the Theme Topic copy's message id when known; empty if copy failed or id could not be read
+	 */
+	Optional<Long> copyMessageToThread(long chatId, long fromMessageId, long messageThreadId);
 
 	void replyToMessage(long chatId, long replyToMessageId, String text);
 

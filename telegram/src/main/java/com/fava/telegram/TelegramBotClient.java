@@ -13,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
@@ -225,21 +226,30 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 	}
 
 	@Override
-	public void copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
+	public Optional<Long> copyMessageToThread(long chatId, long fromMessageId, long messageThreadId) {
 		try {
 			String body = objectMapper.writeValueAsString(
 					new CopyMessageBody(chatId, chatId, fromMessageId, messageThreadId));
 			HttpResponse<String> response = postJson("copyMessage", body);
 			if (response.statusCode() != 200) {
 				log.warn("copyMessage failed HTTP {}: {}", response.statusCode(), response.body());
+				return Optional.empty();
 			}
+			CopyMessageResponse parsed = objectMapper.readValue(response.body(), CopyMessageResponse.class);
+			if (parsed == null || !parsed.ok() || parsed.result() == null) {
+				log.warn("copyMessage returned non-ok body for chat {}: {}", chatId, response.body());
+				return Optional.empty();
+			}
+			return Optional.of(parsed.result().messageId());
 		}
 		catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			log.warn("copyMessage interrupted for chat {}", chatId);
+			return Optional.empty();
 		}
 		catch (IOException e) {
 			log.warn("copyMessage failed for chat {}: {}", chatId, e.toString());
+			return Optional.empty();
 		}
 	}
 
@@ -303,6 +313,14 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 
 	@JsonIgnoreProperties(ignoreUnknown = true)
 	private record ForumTopic(@JsonProperty("message_thread_id") long messageThreadId) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record CopyMessageResponse(boolean ok, MessageIdResult result) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record MessageIdResult(@JsonProperty("message_id") long messageId) {
 	}
 
 	private record ChatIdBody(@JsonProperty("chat_id") long chatId) {
