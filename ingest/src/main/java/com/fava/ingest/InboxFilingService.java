@@ -2,6 +2,7 @@ package com.fava.ingest;
 
 import com.fava.catalog.Catalog;
 import com.fava.catalog.SavedItem;
+import com.fava.catalog.SavedItemIndexer;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
 import com.fava.classify.ClassifierDecision;
@@ -15,6 +16,7 @@ import java.util.stream.IntStream;
 /**
  * Files an Accepted Inbox draft: URL dedupe, Classifier Decision, persist, copy, confirm;
  * or ask for a Theme Topic pick when confidence is low, then complete Filing on callback.
+ * Newly filed Saved Items are indexed for Smart Search (index-on-save; no backfill of older rows).
  */
 public final class InboxFilingService {
 
@@ -25,15 +27,25 @@ public final class InboxFilingService {
 	private final SavedItemStore savedItems;
 	private final FilingPort filingPort;
 	private final TopicClassifier topicClassifier;
+	private final SavedItemIndexer savedItemIndexer;
 
 	/** Pending drafts awaiting Theme Topic pick: key = chatId + ':' + sourceMessageId. */
 	private final Map<String, AcceptedDraft> pendingBySource = new ConcurrentHashMap<>();
 
 	public InboxFilingService(
 			SavedItemStore savedItems, FilingPort filingPort, TopicClassifier topicClassifier) {
+		this(savedItems, filingPort, topicClassifier, item -> {});
+	}
+
+	public InboxFilingService(
+			SavedItemStore savedItems,
+			FilingPort filingPort,
+			TopicClassifier topicClassifier,
+			SavedItemIndexer savedItemIndexer) {
 		this.savedItems = savedItems;
 		this.filingPort = filingPort;
 		this.topicClassifier = topicClassifier;
+		this.savedItemIndexer = savedItemIndexer;
 	}
 
 	public FilingResult file(AcceptedDraft draft, Catalog catalog) {
@@ -106,6 +118,7 @@ public final class InboxFilingService {
 				draft.bodyText(),
 				theme.name(),
 				draft.sourceMessageId()));
+		savedItemIndexer.index(saved);
 		filingPort.copyMessageToThread(catalog.chatId(), draft.sourceMessageId(), theme.threadId());
 		filingPort.replyToMessage(draft.chatId(), draft.sourceMessageId(), FILED_PREFIX + theme.name());
 		return new FilingResult.Filed(theme.name(), saved);

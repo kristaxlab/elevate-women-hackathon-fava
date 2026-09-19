@@ -16,6 +16,9 @@ import com.fava.ingest.FilingCallbackButton;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
 import com.fava.ingest.ThemePickCallback;
+import com.fava.search.CatalogSearchPort;
+import com.fava.search.CatalogSearchResult;
+import com.fava.search.CatalogSearchService;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,6 +55,7 @@ class GroupUpdateHandlerTest {
 	private FakeSavedItemStore savedItems;
 	private FakeForumPort forum;
 	private FakeAdminPort admins;
+	private ScriptedCatalogSearch catalogSearch;
 	private GroupUpdateHandler handler;
 
 	@BeforeEach
@@ -63,6 +67,7 @@ class GroupUpdateHandlerTest {
 		forum.forum = true;
 		admins = new FakeAdminPort();
 		admins.adminIds.add(ADMIN_ID);
+		catalogSearch = new ScriptedCatalogSearch();
 		CatalogSetupService setup = new DefaultCatalogSetupService(store, forum);
 		InboxFilingService filing = new InboxFilingService(savedItems, outbound, new FirstThemeTopicClassifier());
 		StaticMessageSource messages = messages();
@@ -74,7 +79,8 @@ class GroupUpdateHandlerTest {
 				admins,
 				() -> BOT_ID,
 				new InboxMessageNormalizer(),
-				filing);
+				filing,
+				catalogSearch);
 	}
 
 	@Test
@@ -220,6 +226,39 @@ class GroupUpdateHandlerTest {
 	}
 
 	@Test
+	void smartSearchQuestion_repliesWithCatalogAnswerAndDoesNotFile() {
+		seedConfiguredCatalog();
+		catalogSearch.next = new CatalogSearchResult.Answer(
+				"You saved a pilates tip.",
+				List.of(new CatalogSearchResult.Citation(
+						"Pilates reformer tip",
+						Optional.of("https://example.com/pilates"))));
+
+		handler.handle(groupText(MEMBER_ID, "any pilates tips?", List.of(), SMART_SEARCH_THREAD));
+
+		assertThat(outbound.replies).hasSize(1);
+		assertThat(outbound.replies.getFirst().text()).contains("You saved a pilates tip.");
+		assertThat(outbound.replies.getFirst().text()).contains("Citations:");
+		assertThat(outbound.replies.getFirst().text()).contains("https://example.com/pilates");
+		assertThat(outbound.copies).isEmpty();
+		assertThat(savedItems.byId).isEmpty();
+		assertThat(catalogSearch.lastChatId).isEqualTo(CHAT_ID);
+		assertThat(catalogSearch.lastQuestion).isEqualTo("any pilates tips?");
+	}
+
+	@Test
+	void smartSearchEmptyCatalog_repliesHonestNothingFound_notInboxIngest() {
+		seedConfiguredCatalog();
+		catalogSearch.next = new CatalogSearchResult.NothingFound(CatalogSearchService.NOTHING_FOUND_MESSAGE);
+
+		handler.handle(groupText(MEMBER_ID, "what about cooking?", List.of(), SMART_SEARCH_THREAD));
+
+		assertThat(outbound.replies).containsExactly(
+				new RecordingOutbound.Reply(CHAT_ID, 5L, CatalogSearchService.NOTHING_FOUND_MESSAGE));
+		assertThat(outbound.copies).isEmpty();
+	}
+
+	@Test
 	void themePickCallback_completesFiling() {
 		seedConfiguredCatalog();
 		InboxFilingService filing = new InboxFilingService(
@@ -234,7 +273,8 @@ class GroupUpdateHandlerTest {
 				admins,
 				() -> BOT_ID,
 				new InboxMessageNormalizer(),
-				filing);
+				filing,
+				catalogSearch);
 
 		handler.handle(groupText(MEMBER_ID, "https://example.com/pick-me", List.of(), INBOX_THREAD));
 		assertThat(outbound.callbackReplies).hasSize(1);
@@ -496,6 +536,30 @@ class GroupUpdateHandlerTest {
 		@Override
 		public Optional<SavedItem> findById(long id) {
 			return Optional.ofNullable(byId.get(id));
+		}
+
+		@Override
+		public List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit) {
+			String needle = keyword.toLowerCase(Locale.ROOT);
+			return byId.values().stream()
+					.filter(i -> i.chatId() == chatId)
+					.filter(i -> i.bodyText().toLowerCase(Locale.ROOT).contains(needle)
+							|| i.url().map(u -> u.toLowerCase(Locale.ROOT).contains(needle)).orElse(false))
+					.limit(limit)
+					.toList();
+		}
+	}
+
+	private static final class ScriptedCatalogSearch implements CatalogSearchPort {
+		CatalogSearchResult next = new CatalogSearchResult.NothingFound(CatalogSearchService.NOTHING_FOUND_MESSAGE);
+		Long lastChatId;
+		String lastQuestion;
+
+		@Override
+		public CatalogSearchResult answer(long chatId, String question) {
+			lastChatId = chatId;
+			lastQuestion = question;
+			return next;
 		}
 	}
 }

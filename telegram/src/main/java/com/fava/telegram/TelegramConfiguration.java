@@ -3,10 +3,12 @@ package com.fava.telegram;
 import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.DefaultCatalogSetupService;
+import com.fava.catalog.SavedItemIndexer;
 import com.fava.catalog.SavedItemStore;
 import com.fava.classify.TopicClassifier;
 import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
+import com.fava.search.CatalogSearchPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
@@ -36,8 +38,9 @@ public class TelegramConfiguration {
 	InboxFilingService inboxFilingService(
 			SavedItemStore savedItemStore,
 			TelegramBotClient telegramBotClient,
-			TopicClassifier topicClassifier) {
-		return new InboxFilingService(savedItemStore, telegramBotClient, topicClassifier);
+			TopicClassifier topicClassifier,
+			SavedItemIndexer savedItemIndexer) {
+		return new InboxFilingService(savedItemStore, telegramBotClient, topicClassifier, savedItemIndexer);
 	}
 
 	@Bean
@@ -70,7 +73,8 @@ public class TelegramConfiguration {
 			CatalogSetupService catalogSetupService,
 			BotUserIdHolder botUserIdHolder,
 			InboxMessageNormalizer inboxMessageNormalizer,
-			InboxFilingService inboxFilingService) {
+			InboxFilingService inboxFilingService,
+			CatalogSearchPort catalogSearchPort) {
 		return new GroupUpdateHandler(
 				messageSource,
 				telegramBotClient,
@@ -79,7 +83,8 @@ public class TelegramConfiguration {
 				telegramBotClient,
 				botUserIdHolder::get,
 				inboxMessageNormalizer,
-				inboxFilingService);
+				inboxFilingService,
+				catalogSearchPort);
 	}
 
 	@Bean

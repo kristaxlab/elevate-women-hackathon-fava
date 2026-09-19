@@ -10,6 +10,9 @@ import com.fava.ingest.InboxFilingService;
 import com.fava.ingest.InboxMessageNormalizer;
 import com.fava.ingest.NormalizeResult;
 import com.fava.ingest.ThemePickCallback;
+import com.fava.search.CatalogAnswerFormatter;
+import com.fava.search.CatalogSearchPort;
+import com.fava.search.CatalogSearchResult;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -19,12 +22,13 @@ import java.util.stream.Collectors;
 import org.springframework.context.MessageSource;
 
 /**
- * Routes group/supergroup updates for Catalog Setup and Inbox ingest:
+ * Routes group/supergroup updates for Catalog Setup, Inbox ingest, and Smart Search:
  * <ul>
  *   <li>{@code my_chat_member} when Fava becomes admin → nudge toward Topics + {@code /setup}</li>
  *   <li>{@code /setup} with themes on the same message (e.g. {@code /setup AI, Fitness}), or
  *       {@code /setup} alone then the next message from the same admin with the theme list</li>
  *   <li>Messages in a configured Catalog's Inbox thread → normalize, file (or reject)</li>
+ *   <li>Messages in Smart Search → Catalog Question RAG (not Inbox ingest)</li>
  *   <li>Theme Topic pick {@code callback_query} → complete Filing</li>
  *   <li>Non-command messages in an unconfigured group → prompt admins to run {@code /setup}</li>
  * </ul>
@@ -49,6 +53,7 @@ public final class GroupUpdateHandler {
 	private final Supplier<Long> botUserId;
 	private final InboxMessageNormalizer inboxNormalizer;
 	private final InboxFilingService inboxFiling;
+	private final CatalogSearchPort catalogSearch;
 
 	/** chatId → userId awaiting theme list after bare {@code /setup}. */
 	private final Map<Long, Long> pendingThemeListByChat = new ConcurrentHashMap<>();
@@ -61,7 +66,8 @@ public final class GroupUpdateHandler {
 			ChatAdminPort chatAdminPort,
 			Supplier<Long> botUserId,
 			InboxMessageNormalizer inboxNormalizer,
-			InboxFilingService inboxFiling) {
+			InboxFilingService inboxFiling,
+			CatalogSearchPort catalogSearch) {
 		this.messages = messages;
 		this.outbound = outbound;
 		this.catalogStore = catalogStore;
@@ -70,6 +76,7 @@ public final class GroupUpdateHandler {
 		this.botUserId = botUserId;
 		this.inboxNormalizer = inboxNormalizer;
 		this.inboxFiling = inboxFiling;
+		this.catalogSearch = catalogSearch;
 	}
 
 	public void handle(TelegramUpdate update) {
@@ -170,6 +177,11 @@ public final class GroupUpdateHandler {
 			Catalog catalog = configured.get();
 			if (message.messageThreadId() != null && message.messageThreadId() == catalog.inboxThreadId()) {
 				handleInboxMessage(message, catalog);
+				return;
+			}
+			if (message.messageThreadId() != null
+					&& message.messageThreadId() == catalog.smartSearchThreadId()) {
+				handleSmartSearchMessage(message, catalog);
 			}
 			return;
 		}
@@ -177,6 +189,15 @@ public final class GroupUpdateHandler {
 		if (text != null && !text.isBlank()) {
 			outbound.sendText(chatId, msg(MSG_PRE_SETUP));
 		}
+	}
+
+	private void handleSmartSearchMessage(TelegramMessage message, Catalog catalog) {
+		String text = message.text();
+		if (text == null || text.isBlank()) {
+			return;
+		}
+		CatalogSearchResult result = catalogSearch.answer(catalog.chatId(), text);
+		outbound.replyText(message.chat().id(), message.messageId(), CatalogAnswerFormatter.format(result));
 	}
 
 	private void handleInboxMessage(TelegramMessage message, Catalog catalog) {

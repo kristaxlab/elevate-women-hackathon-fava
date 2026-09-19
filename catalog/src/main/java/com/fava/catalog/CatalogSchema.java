@@ -47,5 +47,13 @@ public final class CatalogSchema {
 				ON saved_items (chat_id, url)
 				WHERE url IS NOT NULL
 				""");
+		jdbc.execute("CREATE EXTENSION IF NOT EXISTS vector");
+		jdbc.execute("""
+				CREATE TABLE IF NOT EXISTS saved_item_embeddings (
+					saved_item_id BIGINT PRIMARY KEY REFERENCES saved_items (id) ON DELETE CASCADE,
+					chat_id BIGINT NOT NULL REFERENCES catalogs (chat_id) ON DELETE CASCADE,
+					embedding vector(%d) NOT NULL
+				)
+				""".formatted(EmbeddingDimensions.OPENAI_TEXT_EMBEDDING_3_SMALL));
 	}
 }

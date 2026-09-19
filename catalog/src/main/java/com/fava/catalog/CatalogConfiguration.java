@@ -18,4 +18,10 @@ public class CatalogConfiguration {
 		CatalogSchema.ensure(dataSource);
 		return new JdbcSavedItemStore(dataSource);
 	}
+
+	@Bean
+	SavedItemEmbeddingStore savedItemEmbeddingStore(DataSource dataSource) {
+		CatalogSchema.ensure(dataSource);
+		return new JdbcSavedItemEmbeddingStore(dataSource);
+	}
 }

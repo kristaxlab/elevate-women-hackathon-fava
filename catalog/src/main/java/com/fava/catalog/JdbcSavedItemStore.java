@@ -89,4 +89,30 @@ public final class JdbcSavedItemStore implements SavedItemStore {
 				id);
 		return rows.stream().findFirst();
 	}
+
+	@Override
+	public List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit) {
+		if (keyword == null || keyword.isBlank()) {
+			return List.of();
+		}
+		String pattern = "%" + escapeLike(keyword.trim()) + "%";
+		return jdbc.query(
+				"""
+						SELECT id, chat_id, url, body_text, theme_name, source_message_id
+						FROM saved_items
+						WHERE chat_id = ?
+						  AND (body_text ILIKE ? ESCAPE '\\' OR COALESCE(url, '') ILIKE ? ESCAPE '\\')
+						ORDER BY id
+						LIMIT ?
+						""",
+				ROW,
+				chatId,
+				pattern,
+				pattern,
+				limit);
+	}
+
+	private static String escapeLike(String raw) {
+		return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+	}
 }
