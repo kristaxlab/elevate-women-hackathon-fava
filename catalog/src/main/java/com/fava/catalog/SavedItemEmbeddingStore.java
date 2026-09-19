@@ -1,5 +1,6 @@
 package com.fava.catalog;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -14,6 +15,16 @@ public interface SavedItemEmbeddingStore {
 	 * {@code distance > maxDistance}.
 	 */
 	List<SavedItemHit> findSimilar(long chatId, float[] queryEmbedding, int limit, double maxDistance);
+
+	/**
+	 * Like {@link #findSimilar}, but only among {@code candidateIds}. Empty candidates → empty list.
+	 */
+	List<SavedItemHit> findSimilarAmong(
+			long chatId,
+			float[] queryEmbedding,
+			int limit,
+			double maxDistance,
+			Collection<Long> candidateIds);
 
 	/** Deletes every embedding row (Catalog contents untouched). */
 	void deleteAll();

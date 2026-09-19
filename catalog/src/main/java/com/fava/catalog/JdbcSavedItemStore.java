@@ -4,8 +4,11 @@ import java.sql.Array;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -169,28 +172,51 @@ public final class JdbcSavedItemStore implements SavedItemStore {
 	}
 
 	@Override
-	public List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit) {
-		if (keyword == null || keyword.isBlank()) {
-			return List.of();
-		}
-		String pattern = "%" + escapeLike(keyword.trim()) + "%";
-		return jdbc.query(
+	public List<SavedItem> findByCatalogFilters(long chatId, SavedItemFilters filters) {
+		SavedItemFilters f = filters == null ? SavedItemFilters.NONE : filters;
+		StringBuilder sql = new StringBuilder(
 				"""
 						SELECT %s
 						FROM saved_items
 						WHERE chat_id = ?
-						  AND (body_text ILIKE ? ESCAPE '\\' OR COALESCE(url, '') ILIKE ? ESCAPE '\\')
-						ORDER BY id
-						LIMIT ?
-						""".formatted(SELECT_COLUMNS),
-				ROW,
-				chatId,
-				pattern,
-				pattern,
-				limit);
-	}
-
-	private static String escapeLike(String raw) {
-		return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+						""".formatted(SELECT_COLUMNS));
+		List<Object> args = new ArrayList<>();
+		args.add(chatId);
+		f.sourceType().ifPresent(type -> {
+			sql.append(" AND source_type = ?");
+			args.add(type.trim().toLowerCase(Locale.ROOT));
+		});
+		f.since().ifPresent(since -> {
+			sql.append(" AND created_at >= ?");
+			args.add(Timestamp.from(since));
+		});
+		f.recommendedBy().ifPresent(who -> {
+			sql.append(" AND LOWER(recommended_by) = LOWER(?)");
+			args.add(who.trim());
+		});
+		f.themeName().ifPresent(theme -> {
+			sql.append(" AND LOWER(theme_name) = LOWER(?)");
+			args.add(theme.trim());
+		});
+		final boolean hasTags = !f.tags().isEmpty();
+		if (hasTags) {
+			sql.append(" AND tags @> ?");
+		}
+		sql.append(" ORDER BY id");
+		String query = sql.toString();
+		List<String> tagValues = f.tags();
+		return jdbc.query(
+				connection -> {
+					PreparedStatement ps = connection.prepareStatement(query);
+					int idx = 1;
+					for (Object arg : args) {
+						ps.setObject(idx++, arg);
+					}
+					if (hasTags) {
+						ps.setArray(idx, connection.createArrayOf("text", tagValues.toArray()));
+					}
+					return ps;
+				},
+				ROW);
 	}
 }

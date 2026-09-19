@@ -61,19 +61,20 @@ public class SearchConfiguration {
 			EmbeddingPort embeddingPort,
 			ObjectMapper objectMapper) {
 		if (!properties.hasApiKey()) {
-			return new KeywordCatalogSearchService(savedItemStore, CatalogSearchService.DEFAULT_TOP_K);
+			return new UnavailableCatalogSearchService();
 		}
 		ChatModelPort chatModel = new OpenAiCompatibleChatModel(
 				properties.apiKey(),
 				properties.baseUrl(),
 				properties.chatModel(),
 				objectMapper);
+		StructuredQueryParser queryParser = new StructuredQueryParser(chatModel, objectMapper);
 		return new CatalogSearchService(
+				queryParser,
 				embeddingPort,
 				embeddingStore,
 				savedItemStore,
 				chatModel,
-				CatalogSearchService.DEFAULT_TOP_K,
 				CatalogSearchService.DEFAULT_MAX_DISTANCE);
 	}
 
@@ -86,7 +87,7 @@ public class SearchConfiguration {
 			EmbeddingPort embeddingPort) {
 		return args -> {
 			if (!properties.hasApiKey()) {
-				// Degraded mode: no vectors; registry sync waits until an API key is configured.
+				// No API key: skip vector sync; Smart Search replies unavailable until configured.
 				return;
 			}
 			EmbeddingSpace space = EmbeddingSpace.from(properties);

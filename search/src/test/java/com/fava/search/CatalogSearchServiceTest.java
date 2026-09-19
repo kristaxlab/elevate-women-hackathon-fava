@@ -15,6 +15,7 @@ import com.fava.catalog.JdbcSavedItemStore;
 import com.fava.catalog.SavedItem;
 import com.fava.catalog.SavedItemEmbeddingStore;
 import com.fava.catalog.SavedItemStore;
+import com.fava.catalog.SourceType;
 import com.fava.catalog.ThemeTopic;
 import com.fava.classify.ChatModelPort;
 import com.fava.classify.EmbeddingPort;
@@ -49,7 +50,7 @@ class CatalogSearchServiceTest {
 	private SavedItemStore savedItems;
 	private SavedItemEmbeddingStore embeddings;
 	private long modelId;
-	private RecordingChatModel chat;
+	private RecordingChatModel introChat;
 	private CatalogSearchService search;
 
 	@BeforeEach
@@ -64,37 +65,40 @@ class CatalogSearchServiceTest {
 		modelId = new JdbcEmbeddingModelRegistry(dataSource)
 				.activate(new EmbeddingSpace("test-model", EmbeddingDimensions.DEFAULT), CatalogSyncStatus.SUCCEEDED)
 				.id();
-		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
+		catalogs.create(new Catalog(CHAT_ID, 1L, 2L, List.of(new ThemeTopic("AI", 3L), new ThemeTopic("Food", 4L))));
 		catalogs.create(new Catalog(OTHER_CHAT, 1L, 2L, List.of(new ThemeTopic("AI", 3L))));
-		chat = new RecordingChatModel("Grounded answer about pilates.");
-		search = new CatalogSearchService(
-				new FixedEmbeddingPort(ones()),
-				embeddings,
-				savedItems,
-				chat,
-				CatalogSearchService.DEFAULT_TOP_K,
-				CatalogSearchService.DEFAULT_MAX_DISTANCE);
+		introChat = new RecordingChatModel("Here are matching saves from your Catalog.");
+		search = newSearch("""
+				{"query":"pilates tips","limit":3,"filters":{}}
+				""");
 	}
 
 	@Test
-	void emptyCatalog_returnsNothingFound_withoutCallingChatModel() {
+	void emptyCatalog_returnsNothingFound_withoutCallingIntro() {
 		CatalogSearchResult result = search.answer(CHAT_ID, "What did I save about pilates?");
 
 		assertThat(result).isInstanceOf(CatalogSearchResult.NothingFound.class);
 		assertThat(((CatalogSearchResult.NothingFound) result).message())
 				.isEqualTo(CatalogSearchService.NOTHING_FOUND_MESSAGE);
-		assertThat(chat.calls.get()).isZero();
+		assertThat(introChat.calls.get()).isZero();
 	}
 
 	@Test
-	void relevantHit_generatesAnswerWithCitationsFromOnlyThisCatalog() {
-		SavedItem mine = savedItems.save(SavedItem.of(
+	void relevantHit_returnsRankedListWithGroundedIntroAndDeepLink() {
+		SavedItem mine = savedItems.save(new SavedItem(
 				null,
 				CHAT_ID,
 				Optional.of("https://example.com/pilates"),
 				"Pilates reformer tip for beginners",
 				"AI",
-				1L));
+				1L,
+				Optional.of(SavedItem.USER_LIB_TYPE_TELEGRAM),
+				Optional.of("9001"),
+				Optional.of(SourceType.ARTICLE),
+				Optional.of("Pilates reformer tip"),
+				Optional.empty(),
+				List.of("fitness"),
+				Optional.of("Pilates reformer tip for beginners")));
 		SavedItem other = savedItems.save(SavedItem.of(
 				null,
 				OTHER_CHAT,
@@ -109,18 +113,19 @@ class CatalogSearchServiceTest {
 
 		assertThat(result).isInstanceOf(CatalogSearchResult.Answer.class);
 		CatalogSearchResult.Answer answer = (CatalogSearchResult.Answer) result;
-		assertThat(answer.text()).isEqualTo("Grounded answer about pilates.");
-		assertThat(answer.citations()).hasSize(1);
-		assertThat(answer.citations().getFirst().snippet()).contains("Pilates reformer");
-		assertThat(answer.citations().getFirst().url()).contains("https://example.com/pilates");
-		assertThat(chat.userMessages).hasSize(1);
-		assertThat(chat.userMessages.getFirst()).contains("Pilates reformer tip");
-		assertThat(chat.userMessages.getFirst()).doesNotContain("open web");
-		assertThat(chat.systemPrompts.getFirst()).containsIgnoringCase("only");
+		assertThat(answer.intro()).isEqualTo("Here are matching saves from your Catalog.");
+		assertThat(answer.items()).hasSize(1);
+		assertThat(answer.items().getFirst().title()).isEqualTo("Pilates reformer tip");
+		assertThat(answer.items().getFirst().sourceType()).contains("article");
+		assertThat(answer.items().getFirst().themeTopicLink())
+				.contains("https://t.me/c/777/9001");
+		assertThat(introChat.userMessages.getFirst()).contains("Pilates reformer tip");
+		assertThat(introChat.userMessages.getFirst()).doesNotContain("open web");
+		assertThat(introChat.systemPrompts.getFirst()).containsIgnoringCase("ONLY");
 	}
 
 	@Test
-	void noHitAboveThreshold_returnsNothingFound_withoutCallingChatModel() {
+	void noHitAboveThreshold_returnsNothingFound_withoutCallingIntro() {
 		SavedItem item = savedItems.save(SavedItem.of(
 				null, CHAT_ID, Optional.empty(), "unrelated cooking note", "AI", 3L));
 		float[] orthogonal = zeros();
@@ -130,7 +135,135 @@ class CatalogSearchServiceTest {
 		CatalogSearchResult result = search.answer(CHAT_ID, "pilates?");
 
 		assertThat(result).isInstanceOf(CatalogSearchResult.NothingFound.class);
-		assertThat(chat.calls.get()).isZero();
+		assertThat(introChat.calls.get()).isZero();
+	}
+
+	@Test
+	void explicitFiltersMatchNothing_hardEmpty_withoutSemanticOrIntro() {
+		SavedItem item = savedItems.save(new SavedItem(
+				null,
+				CHAT_ID,
+				Optional.empty(),
+				"pasta recipe",
+				"Food",
+				4L,
+				Optional.empty(),
+				Optional.empty(),
+				Optional.of(SourceType.RECIPE),
+				Optional.of("Pasta"),
+				Optional.of("Anna"),
+				List.of("italian"),
+				Optional.of("Pasta")));
+		embeddings.upsert(item.id(), CHAT_ID, ones(), modelId);
+		RecordingEmbeddingPort embedding = new RecordingEmbeddingPort(ones());
+		search = new CatalogSearchService(
+				new StructuredQueryParser((system, user) -> """
+						{"query":"pasta","limit":3,"filters":{"tags":["mexican"]}}
+						"""),
+				embedding,
+				embeddings,
+				savedItems,
+				introChat,
+				CatalogSearchService.DEFAULT_MAX_DISTANCE);
+
+		CatalogSearchResult result = search.answer(CHAT_ID, "mexican pasta?");
+
+		assertThat(result).isInstanceOf(CatalogSearchResult.NothingFound.class);
+		assertThat(embedding.calls.get()).isZero();
+		assertThat(introChat.calls.get()).isZero();
+	}
+
+	@Test
+	void filtersThenRanks_onlyMatchingCandidates() {
+		SavedItem pasta = savedItems.save(new SavedItem(
+				null,
+				CHAT_ID,
+				Optional.empty(),
+				"pasta dinner",
+				"Food",
+				5L,
+				Optional.empty(),
+				Optional.empty(),
+				Optional.of(SourceType.RECIPE),
+				Optional.of("Pasta dinner"),
+				Optional.of("Anna"),
+				List.of("italian", "dinner"),
+				Optional.of("Pasta dinner")));
+		SavedItem salad = savedItems.save(new SavedItem(
+				null,
+				CHAT_ID,
+				Optional.empty(),
+				"green salad",
+				"Food",
+				6L,
+				Optional.empty(),
+				Optional.empty(),
+				Optional.of(SourceType.RECIPE),
+				Optional.of("Green salad"),
+				Optional.of("Bob"),
+				List.of("salad"),
+				Optional.of("Green salad")));
+		embeddings.upsert(pasta.id(), CHAT_ID, ones(), modelId);
+		embeddings.upsert(salad.id(), CHAT_ID, ones(), modelId);
+		search = newSearch("""
+				{"query":"dinner","limit":3,"filters":{"recommended_by":"Anna","tags":["italian","dinner"]}}
+				""");
+
+		CatalogSearchResult result = search.answer(CHAT_ID, "Anna italian dinner?");
+
+		assertThat(result).isInstanceOf(CatalogSearchResult.Answer.class);
+		CatalogSearchResult.Answer answer = (CatalogSearchResult.Answer) result;
+		assertThat(answer.items()).hasSize(1);
+		assertThat(answer.items().getFirst().title()).isEqualTo("Pasta dinner");
+	}
+
+	@Test
+	void userStatedLimit_isHonoredUpToTen() {
+		for (int i = 0; i < 5; i++) {
+			SavedItem item = savedItems.save(SavedItem.of(
+					null, CHAT_ID, Optional.empty(), "tip number " + i, "AI", 10L + i));
+			embeddings.upsert(item.id(), CHAT_ID, ones(), modelId);
+		}
+		search = newSearch("""
+				{"query":"tips","limit":2,"filters":{}}
+				""");
+
+		CatalogSearchResult result = search.answer(CHAT_ID, "give me 2 tips");
+
+		assertThat(result).isInstanceOf(CatalogSearchResult.Answer.class);
+		assertThat(((CatalogSearchResult.Answer) result).items()).hasSize(2);
+	}
+
+	@Test
+	void distanceCutoff_mayReturnFewerThanLimit() {
+		SavedItem close = savedItems.save(SavedItem.of(
+				null, CHAT_ID, Optional.empty(), "close pilates tip", "AI", 20L));
+		SavedItem far = savedItems.save(SavedItem.of(
+				null, CHAT_ID, Optional.empty(), "far cooking note", "AI", 21L));
+		embeddings.upsert(close.id(), CHAT_ID, ones(), modelId);
+		float[] orthogonal = zeros();
+		orthogonal[0] = 1f;
+		embeddings.upsert(far.id(), CHAT_ID, orthogonal, modelId);
+		search = newSearch("""
+				{"query":"pilates","limit":3,"filters":{}}
+				""");
+
+		CatalogSearchResult result = search.answer(CHAT_ID, "pilates?");
+
+		assertThat(result).isInstanceOf(CatalogSearchResult.Answer.class);
+		assertThat(((CatalogSearchResult.Answer) result).items()).hasSize(1);
+		assertThat(((CatalogSearchResult.Answer) result).items().getFirst().title())
+				.contains("close pilates");
+	}
+
+	private CatalogSearchService newSearch(String structuredJson) {
+		return new CatalogSearchService(
+				new StructuredQueryParser((system, user) -> structuredJson),
+				new FixedEmbeddingPort(ones()),
+				embeddings,
+				savedItems,
+				introChat,
+				CatalogSearchService.DEFAULT_MAX_DISTANCE);
 	}
 
 	private static float[] ones() {
@@ -161,6 +294,21 @@ class CatalogSearchServiceTest {
 
 		@Override
 		public float[] embed(String text) {
+			return vector.clone();
+		}
+	}
+
+	private static final class RecordingEmbeddingPort implements EmbeddingPort {
+		private final float[] vector;
+		final AtomicInteger calls = new AtomicInteger();
+
+		RecordingEmbeddingPort(float[] vector) {
+			this.vector = vector;
+		}
+
+		@Override
+		public float[] embed(String text) {
+			calls.incrementAndGet();
 			return vector.clone();
 		}
 	}

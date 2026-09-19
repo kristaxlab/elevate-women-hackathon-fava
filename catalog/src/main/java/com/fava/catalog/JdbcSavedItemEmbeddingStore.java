@@ -1,5 +1,6 @@
 package com.fava.catalog;
 
+import java.util.Collection;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,6 +65,43 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 				maxDistance,
 				literal,
 				limit);
+	}
+
+	@Override
+	public List<SavedItemHit> findSimilarAmong(
+			long chatId,
+			float[] queryEmbedding,
+			int limit,
+			double maxDistance,
+			Collection<Long> candidateIds) {
+		if (candidateIds == null || candidateIds.isEmpty()) {
+			return List.of();
+		}
+		requireDims(queryEmbedding);
+		String literal = toVectorLiteral(queryEmbedding);
+		Long[] ids = candidateIds.toArray(Long[]::new);
+		return jdbc.query(
+				connection -> {
+					var ps = connection.prepareStatement(
+							"""
+									SELECT saved_item_id, (embedding <=> ?::vector) AS distance
+									FROM saved_item_embeddings
+									WHERE chat_id = ?
+									  AND saved_item_id = ANY(?)
+									  AND (embedding <=> ?::vector) <= ?
+									ORDER BY embedding <=> ?::vector
+									LIMIT ?
+									""");
+					ps.setString(1, literal);
+					ps.setLong(2, chatId);
+					ps.setArray(3, connection.createArrayOf("bigint", ids));
+					ps.setString(4, literal);
+					ps.setDouble(5, maxDistance);
+					ps.setString(6, literal);
+					ps.setInt(7, limit);
+					return ps;
+				},
+				(rs, rowNum) -> new SavedItemHit(rs.getLong("saved_item_id"), rs.getDouble("distance")));
 	}
 
 	@Override

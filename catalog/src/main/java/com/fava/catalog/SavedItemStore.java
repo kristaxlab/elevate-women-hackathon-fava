@@ -22,8 +22,8 @@ public interface SavedItemStore {
 	Optional<SavedItem> findById(long id);
 
 	/**
-	 * Keyword search over body text (and URL when present) within one Catalog.
-	 * Used for offline / no-API-key degraded Smart Search.
+	 * Explicit-facet filter within one Catalog. Tags are AND.
+	 * When {@code filters} is empty, returns every Saved Item in the Catalog.
 	 */
-	List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit);
+	List<SavedItem> findByCatalogFilters(long chatId, SavedItemFilters filters);
 }

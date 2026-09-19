@@ -84,10 +84,14 @@ _Avoid_: conflict, merge
 A free-text question asked in Smart Search, answered using only Saved Items from that Catalog.
 _Avoid_: prompt, query (when talking to users), chat message
 
+**Structured Query**:
+The machine form of a Catalog Question used for Smart Search retrieval: an English retrieval string, a result limit, and optional explicit filters (source type, since, recommended by, tags, theme name). Filters not clearly stated in the question are omitted.
+_Avoid_: prompt, SQL, embedding vector (as the user-facing idea)
+
 **Catalog Answer**:
-Fava’s reply to a Catalog Question: a natural-language answer grounded in Saved Items, plus Citations.
-_Avoid_: completion, hallucination (except when describing failure modes), search results (alone)
+Fava’s reply to a Catalog Question: a short grounded intro plus a ranked list of matching Saved Items (with Theme Topic deep links when available). It does not invent items or answer from the open web.
+_Avoid_: completion, hallucination (except when describing failure modes), RAG essay, prose-only answer
 
 **Citation**:
-A pointer from a Catalog Answer back to a Saved Item (short snippet/title and URL when present) so the Participant can open the original save.
-_Avoid_: source, reference, hit, search result
+A list entry in a Catalog Answer pointing at a Saved Item (title and type, plus Theme Topic deep link or URL) so the Participant can open the original save.
+_Avoid_: source, reference, hit, search result (alone)

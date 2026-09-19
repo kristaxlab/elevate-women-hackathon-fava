@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fava.catalog.Catalog;
 import com.fava.catalog.SavedItem;
+import com.fava.catalog.SavedItemFilters;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
 import com.fava.classify.ClassifierDecision;
@@ -322,7 +323,7 @@ class IntentRouterTest {
 		}
 
 		@Override
-		public List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit) {
+		public List<SavedItem> findByCatalogFilters(long chatId, SavedItemFilters filters) {
 			return List.of();
 		}
 	}

@@ -1,3 +1,3 @@
 # Smart Search answers only from the Catalog
 
-Catalog Answers must be grounded in Saved Items from the same Catalog (RAG over that group’s store). The bot must not answer from general web knowledge when the library has nothing relevant—prefer an honest empty result. Open-web “assistant” behavior would undermine trust that Fava is a search over *your* saves.
+Catalog Answers must be grounded in Saved Items from the same Catalog. Smart Search returns a **ranked list** of matching Saved Items (plus a short intro that may only mention those returned titles, types, and count)—not an open-ended RAG essay and not open-web knowledge. When nothing matches (including when explicit filters match nothing), prefer an honest empty result over inventing items. Without AI configuration, say so clearly; do not fall back to keyword matching. Open-web “assistant” behavior would undermine trust that Fava is a search over *your* saves.

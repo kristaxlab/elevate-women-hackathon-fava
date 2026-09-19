@@ -9,6 +9,7 @@ import com.fava.catalog.CatalogSetupService;
 import com.fava.catalog.CatalogStore;
 import com.fava.catalog.DefaultCatalogSetupService;
 import com.fava.catalog.SavedItem;
+import com.fava.catalog.SavedItemFilters;
 import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.ThemeTopic;
 import com.fava.classify.FirstThemeTopicClassifier;
@@ -242,14 +243,16 @@ class GroupUpdateHandlerTest {
 				"You saved a pilates tip.",
 				List.of(new CatalogSearchResult.Citation(
 						"Pilates reformer tip",
-						Optional.of("https://example.com/pilates"))));
+						Optional.of("article"),
+						Optional.of("https://example.com/pilates"),
+						Optional.of("https://t.me/c/123/9001"))));
 
 		handler.handle(groupText(MEMBER_ID, "any pilates tips?", List.of(), SMART_SEARCH_THREAD));
 
 		assertThat(outbound.replies).hasSize(1);
 		assertThat(outbound.replies.getFirst().text()).contains("You saved a pilates tip.");
-		assertThat(outbound.replies.getFirst().text()).contains("Citations:");
-		assertThat(outbound.replies.getFirst().text()).contains("https://example.com/pilates");
+		assertThat(outbound.replies.getFirst().text()).contains("Pilates reformer tip");
+		assertThat(outbound.replies.getFirst().text()).contains("https://t.me/c/123/9001");
 		assertThat(outbound.copies).isEmpty();
 		assertThat(savedItems.byId).isEmpty();
 		assertThat(catalogSearch.lastChatId).isEqualTo(CHAT_ID);
@@ -580,14 +583,8 @@ class GroupUpdateHandlerTest {
 		}
 
 		@Override
-		public List<SavedItem> findByCatalogKeyword(long chatId, String keyword, int limit) {
-			String needle = keyword.toLowerCase(Locale.ROOT);
-			return byId.values().stream()
-					.filter(i -> i.chatId() == chatId)
-					.filter(i -> i.bodyText().toLowerCase(Locale.ROOT).contains(needle)
-							|| i.url().map(u -> u.toLowerCase(Locale.ROOT).contains(needle)).orElse(false))
-					.limit(limit)
-					.toList();
+		public List<SavedItem> findByCatalogFilters(long chatId, SavedItemFilters filters) {
+			return byId.values().stream().filter(i -> i.chatId() == chatId).toList();
 		}
 	}
 
