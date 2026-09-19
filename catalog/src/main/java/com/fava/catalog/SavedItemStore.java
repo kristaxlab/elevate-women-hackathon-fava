@@ -1,5 +1,6 @@
 package com.fava.catalog;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +21,11 @@ public interface SavedItemStore {
 	Optional<SavedItem> findByCatalogAndUrl(long chatId, String url);
 
 	Optional<SavedItem> findById(long id);
+
+	/**
+	 * Sets {@code created_at} for seed / test probes (e.g. Smart Search {@code since} filters).
+	 */
+	void updateCreatedAt(long id, Instant createdAt);
 
 	/**
 	 * Explicit-facet filter within one Catalog. Tags are AND.

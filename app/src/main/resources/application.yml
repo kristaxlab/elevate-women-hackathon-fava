@@ -21,6 +21,10 @@ fava:
     # Must match embedding-dimensions (default openai/text-embedding-3-small → 1536)
     embedding-model: ${FAVA_OPENROUTER_EMBEDDING_MODEL:openai/text-embedding-3-small}
     embedding-dimensions: ${FAVA_OPENROUTER_EMBEDDING_DIMENSIONS:1536}
+  # Seed-only test Catalog (~30 items). Off by default — see docs/seed-catalog.md
+  seed:
+    enabled: ${FAVA_SEED_ENABLED:false}
+    chat-id: ${FAVA_SEED_CHAT_ID:}
 
 management:
   endpoints:
@@ -36,3 +40,7 @@ management:
 
 server:
   port: ${FAVA_SERVER_PORT:8080}
+
+logging:
+  level:
+    com.fava: DEBUG

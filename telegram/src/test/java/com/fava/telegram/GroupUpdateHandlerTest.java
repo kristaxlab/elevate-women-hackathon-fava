@@ -583,6 +583,11 @@ class GroupUpdateHandlerTest {
 		}
 
 		@Override
+		public void updateCreatedAt(long id, java.time.Instant createdAt) {
+			// seed/test only; in-memory fake ignores timestamps
+		}
+
+		@Override
 		public List<SavedItem> findByCatalogFilters(long chatId, SavedItemFilters filters) {
 			return byId.values().stream().filter(i -> i.chatId() == chatId).toList();
 		}

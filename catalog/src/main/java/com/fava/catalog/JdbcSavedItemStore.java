@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -137,6 +138,24 @@ public final class JdbcSavedItemStore implements SavedItemStore {
 			throw new IllegalStateException("saved_items updateUserLib affected " + updated + " rows for id " + id);
 		}
 		return findById(id).orElseThrow(() -> new IllegalStateException("saved_items missing after updateUserLib: " + id));
+	}
+
+	@Override
+	public void updateCreatedAt(long id, Instant createdAt) {
+		if (createdAt == null) {
+			throw new IllegalArgumentException("createdAt must not be null");
+		}
+		int updated = jdbc.update(
+				"""
+						UPDATE saved_items
+						SET created_at = ?
+						WHERE id = ?
+						""",
+				Timestamp.from(createdAt),
+				id);
+		if (updated != 1) {
+			throw new IllegalStateException("saved_items updateCreatedAt affected " + updated + " rows for id " + id);
+		}
 	}
 
 	@Override
