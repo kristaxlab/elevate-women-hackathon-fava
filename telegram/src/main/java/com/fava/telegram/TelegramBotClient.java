@@ -236,7 +236,7 @@ final class TelegramBotClient implements TelegramOutbound, CatalogForumPort, Cha
 				return Optional.empty();
 			}
 			CopyMessageResponse parsed = objectMapper.readValue(response.body(), CopyMessageResponse.class);
-			if (parsed == null || !parsed.ok() || parsed.result() == null) {
+			if (parsed == null || !parsed.ok() || parsed.result() == null || parsed.result().messageId() <= 0) {
 				log.warn("copyMessage returned non-ok body for chat {}: {}", chatId, response.body());
 				return Optional.empty();
 			}
