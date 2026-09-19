@@ -16,15 +16,29 @@ public class TelegramConfiguration {
 	}
 
 	@Bean
-	DmUpdateHandler dmUpdateHandler(MessageSource messageSource, TelegramBotClient telegramBotClient) {
-		return new DmUpdateHandler(messageSource, telegramBotClient);
+	BotUsernameHolder botUsernameHolder(TelegramProperties properties) {
+		BotUsernameHolder holder = new BotUsernameHolder();
+		if (properties.hasConfiguredUsername()) {
+			holder.set(properties.botUsername());
+		}
+		return holder;
+	}
+
+	@Bean
+	DmUpdateHandler dmUpdateHandler(
+			MessageSource messageSource,
+			TelegramBotClient telegramBotClient,
+			BotUsernameHolder botUsernameHolder) {
+		return new DmUpdateHandler(messageSource, telegramBotClient, botUsernameHolder::get);
 	}
 
 	@Bean
 	TelegramLongPollingLifecycle telegramLongPollingLifecycle(
 			TelegramProperties properties,
 			TelegramBotClient telegramBotClient,
-			DmUpdateHandler dmUpdateHandler) {
-		return new TelegramLongPollingLifecycle(properties, telegramBotClient, dmUpdateHandler);
+			DmUpdateHandler dmUpdateHandler,
+			BotUsernameHolder botUsernameHolder) {
+		return new TelegramLongPollingLifecycle(
+				properties, telegramBotClient, dmUpdateHandler, botUsernameHolder);
 	}
 }

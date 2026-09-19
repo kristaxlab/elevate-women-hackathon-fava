@@ -13,6 +13,7 @@ spring:
 fava:
   telegram:
     bot-token: ${FAVA_TELEGRAM_BOT_TOKEN:}
+    bot-username: ${FAVA_TELEGRAM_BOT_USERNAME:}
   openrouter:
     api-key: ${FAVA_OPENROUTER_API_KEY:}
     base-url: ${FAVA_OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}

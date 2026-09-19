@@ -1,6 +1,7 @@
 package com.fava.telegram;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.io.IOException;
 import java.net.URI;
@@ -14,7 +15,7 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Thin Bot API client using JDK HttpClient (long-poll getUpdates + sendMessage).
+ * Thin Bot API client using JDK HttpClient (long-poll getUpdates + sendMessage + getMe).
  */
 final class TelegramBotClient implements TelegramOutbound {
 
@@ -52,10 +53,42 @@ final class TelegramBotClient implements TelegramOutbound {
 		return parsed.result() == null ? List.of() : parsed.result();
 	}
 
+	/**
+	 * Resolves this bot's username via {@code getMe}. Returns null if missing or the call fails.
+	 */
+	String getMeUsername() throws IOException, InterruptedException {
+		HttpRequest request = HttpRequest.newBuilder(URI.create(API_BASE + token + "/getMe"))
+				.timeout(Duration.ofSeconds(30))
+				.GET()
+				.build();
+		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+		if (response.statusCode() != 200) {
+			throw new IOException("getMe HTTP " + response.statusCode() + ": " + response.body());
+		}
+		GetMeResponse parsed = objectMapper.readValue(response.body(), GetMeResponse.class);
+		if (!parsed.ok() || parsed.result() == null) {
+			throw new IOException("getMe not ok: " + response.body());
+		}
+		String username = parsed.result().username();
+		return username == null || username.isBlank() ? null : username;
+	}
+
 	@Override
 	public void sendText(long chatId, String text) {
+		sendMessage(chatId, text, null);
+	}
+
+	@Override
+	public void sendTextWithInlineKeyboard(long chatId, String text, List<InlineUrlButton> buttons) {
+		List<List<InlineKeyboardButtonBody>> rows = buttons.stream()
+				.map(b -> List.of(new InlineKeyboardButtonBody(b.text(), b.url())))
+				.toList();
+		sendMessage(chatId, text, new InlineKeyboardMarkup(rows));
+	}
+
+	private void sendMessage(long chatId, String text, InlineKeyboardMarkup replyMarkup) {
 		try {
-			String body = objectMapper.writeValueAsString(new SendMessageBody(chatId, text));
+			String body = objectMapper.writeValueAsString(new SendMessageBody(chatId, text, replyMarkup));
 			HttpRequest request = HttpRequest.newBuilder(URI.create(API_BASE + token + "/sendMessage"))
 					.timeout(Duration.ofSeconds(30))
 					.header("Content-Type", "application/json")
@@ -79,6 +112,25 @@ final class TelegramBotClient implements TelegramOutbound {
 	private record GetUpdatesResponse(boolean ok, List<TelegramUpdate> result) {
 	}
 
-	private record SendMessageBody(@JsonProperty("chat_id") long chatId, String text) {
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record GetMeResponse(boolean ok, GetMeUser result) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	private record GetMeUser(String username) {
+	}
+
+	@JsonIgnoreProperties(ignoreUnknown = true)
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	private record SendMessageBody(
+			@JsonProperty("chat_id") long chatId,
+			String text,
+			@JsonProperty("reply_markup") InlineKeyboardMarkup replyMarkup) {
+	}
+
+	private record InlineKeyboardMarkup(@JsonProperty("inline_keyboard") List<List<InlineKeyboardButtonBody>> inlineKeyboard) {
+	}
+
+	private record InlineKeyboardButtonBody(String text, String url) {
 	}
 }

@@ -9,6 +9,7 @@ import org.springframework.context.SmartLifecycle;
 /**
  * Long-polls {@code getUpdates} on a background thread when a bot token is configured.
  * Without a token the app still starts; polling is skipped with a warning.
+ * Resolves the bot username (config or {@code getMe}) once before polling so DM deep links work.
  */
 final class TelegramLongPollingLifecycle implements SmartLifecycle {
 
@@ -18,6 +19,7 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 	private final TelegramProperties properties;
 	private final TelegramBotClient client;
 	private final DmUpdateHandler dmUpdateHandler;
+	private final BotUsernameHolder botUsernameHolder;
 
 	private final Object lifecycleMonitor = new Object();
 	private volatile boolean running;
@@ -26,10 +28,12 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 	TelegramLongPollingLifecycle(
 			TelegramProperties properties,
 			TelegramBotClient client,
-			DmUpdateHandler dmUpdateHandler) {
+			DmUpdateHandler dmUpdateHandler,
+			BotUsernameHolder botUsernameHolder) {
 		this.properties = properties;
 		this.client = client;
 		this.dmUpdateHandler = dmUpdateHandler;
+		this.botUsernameHolder = botUsernameHolder;
 	}
 
 	@Override
@@ -42,6 +46,7 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 				log.warn("fava.telegram.bot-token is empty; skipping Telegram long polling");
 				return;
 			}
+			resolveBotUsername();
 			running = true;
 			pollThread = Thread.ofVirtual().name("telegram-long-poll").start(this::pollLoop);
 			log.info("Telegram long polling started");
@@ -62,6 +67,31 @@ final class TelegramLongPollingLifecycle implements SmartLifecycle {
 	@Override
 	public boolean isRunning() {
 		return running;
+	}
+
+	private void resolveBotUsername() {
+		if (properties.hasConfiguredUsername()) {
+			botUsernameHolder.set(properties.botUsername());
+			log.info("Using configured Telegram bot username @{}", botUsernameHolder.get());
+			return;
+		}
+		try {
+			String username = client.getMeUsername();
+			botUsernameHolder.set(username);
+			if (username != null) {
+				log.info("Resolved Telegram bot username via getMe: @{}", username);
+			}
+			else {
+				log.warn("getMe returned no username; DM Catalog deep links will be omitted");
+			}
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			log.warn("getMe interrupted; DM Catalog deep links will be omitted");
+		}
+		catch (IOException e) {
+			log.warn("getMe failed; DM Catalog deep links will be omitted: {}", e.toString());
+		}
 	}
 
 	private void pollLoop() {
