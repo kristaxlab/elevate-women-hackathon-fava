@@ -48,6 +48,27 @@ class JdbcSavedItemEmbeddingStoreTest {
 	}
 
 	@Test
+	void upsert_thenFindBySavedItemId_returnsVectorAndModelMetadata() {
+		SavedItem item = savedItems.save(SavedItem.of(
+				null, CHAT_A, Optional.of("https://a.example/read"), "read me", "AI", 1L));
+		float[] vector = pad(unitVector(1f, 0f, 0f));
+		embeddings.upsert(item.id(), CHAT_A, vector, modelId);
+
+		assertThat(embeddings.findBySavedItemId(item.id()))
+				.get()
+				.satisfies(stored -> {
+					assertThat(stored.modelId()).isEqualTo("test-model");
+					assertThat(stored.dimensions()).isEqualTo(EmbeddingDimensions.DEFAULT);
+					assertThat(stored.vector()).isEqualTo(vector);
+				});
+	}
+
+	@Test
+	void findBySavedItemId_whenMissing_isEmpty() {
+		assertThat(embeddings.findBySavedItemId(999_999L)).isEmpty();
+	}
+
+	@Test
 	void upsert_thenFindSimilar_returnsItemForSameCatalogOnly() {
 		SavedItem itemA = savedItems.save(SavedItem.of(
 				null, CHAT_A, Optional.of("https://a.example/1"), "alpha tip", "AI", 1L));

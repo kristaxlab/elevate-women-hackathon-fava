@@ -2,6 +2,7 @@ package com.fava.catalog;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -43,6 +44,24 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 				chatId,
 				literal,
 				embeddingModelId);
+	}
+
+	@Override
+	public Optional<StoredEmbedding> findBySavedItemId(long savedItemId) {
+		List<StoredEmbedding> rows = jdbc.query(
+				"""
+						SELECT e.embedding::text AS embedding, m.model_id, m.dimensions
+						FROM saved_item_embeddings e
+						JOIN embedding_models m ON m.id = e.embedding_model_id
+						WHERE e.saved_item_id = ?
+						""",
+				(rs, rowNum) -> {
+					int dims = rs.getInt("dimensions");
+					float[] vector = parseVectorLiteral(rs.getString("embedding"), dims);
+					return new StoredEmbedding(rs.getString("model_id"), dims, vector);
+				},
+				savedItemId);
+		return rows.stream().findFirst();
 	}
 
 	@Override
@@ -143,5 +162,29 @@ public final class JdbcSavedItemEmbeddingStore implements SavedItemEmbeddingStor
 		}
 		sb.append(']');
 		return sb.toString();
+	}
+
+	static float[] parseVectorLiteral(String literal, int expectedDimensions) {
+		if (literal == null || literal.isBlank()) {
+			throw new IllegalArgumentException("embedding literal must not be blank");
+		}
+		String trimmed = literal.trim();
+		if (trimmed.charAt(0) != '[' || trimmed.charAt(trimmed.length() - 1) != ']') {
+			throw new IllegalArgumentException("embedding literal must be [..]");
+		}
+		String body = trimmed.substring(1, trimmed.length() - 1).trim();
+		if (body.isEmpty()) {
+			throw new IllegalArgumentException("embedding literal must have " + expectedDimensions + " dimensions");
+		}
+		String[] parts = body.split(",");
+		if (parts.length != expectedDimensions) {
+			throw new IllegalArgumentException(
+					"embedding literal length " + parts.length + " != " + expectedDimensions);
+		}
+		float[] vector = new float[expectedDimensions];
+		for (int i = 0; i < parts.length; i++) {
+			vector[i] = Float.parseFloat(parts[i].trim());
+		}
+		return vector;
 	}
 }
