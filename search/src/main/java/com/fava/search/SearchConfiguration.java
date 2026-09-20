@@ -55,24 +55,38 @@ public class SearchConfiguration {
 	}
 
 	@Bean
-	CatalogSearchPort catalogSearchPort(
-			OpenRouterProperties properties,
-			StructuredItemsSearcher structuredItemsSearcher,
-			ObjectMapper objectMapper) {
+	ChatModelPort chatModelPort(OpenRouterProperties properties, ObjectMapper objectMapper) {
 		if (!properties.hasApiKey()) {
-			return new UnavailableCatalogSearchService();
+			return (systemPrompt, userMessage) -> {
+				throw new IllegalStateException("OpenRouter API key not configured");
+			};
 		}
-		ChatModelPort chatModel = new OpenAiCompatibleChatModel(
+		return new OpenAiCompatibleChatModel(
 				properties.apiKey(),
 				properties.baseUrl(),
 				properties.chatModel(),
 				objectMapper);
-		StructuredQueryParser queryParser = new StructuredQueryParser(chatModel, objectMapper);
+	}
+
+	@Bean
+	CatalogSearchPort catalogSearchPort(
+			OpenRouterProperties properties,
+			StructuredItemsSearcher structuredItemsSearcher,
+			StructuredQueryParser structuredQueryParser,
+			ChatModelPort chatModelPort) {
+		if (!properties.hasApiKey()) {
+			return new UnavailableCatalogSearchService();
+		}
 		return new CatalogSearchService(
-				queryParser,
+				structuredQueryParser,
 				structuredItemsSearcher,
-				chatModel,
+				chatModelPort,
 				CatalogSearchService.DEFAULT_MAX_DISTANCE);
+	}
+
+	@Bean
+	StructuredQueryParser structuredQueryParser(ChatModelPort chatModelPort, ObjectMapper objectMapper) {
+		return new StructuredQueryParser(chatModelPort, objectMapper);
 	}
 
 	@Bean
