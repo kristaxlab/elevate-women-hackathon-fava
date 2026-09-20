@@ -59,4 +59,12 @@ public class CatalogConfiguration {
 				embeddingPort,
 				catalogTransactionTemplate);
 	}
+
+	@Bean
+	CatalogItemLister catalogItemLister(
+			CatalogStore catalogStore,
+			SavedItemStore savedItemStore,
+			SavedItemEmbeddingStore savedItemEmbeddingStore) {
+		return new CatalogItemLister(catalogStore, savedItemStore, savedItemEmbeddingStore);
+	}
 }
