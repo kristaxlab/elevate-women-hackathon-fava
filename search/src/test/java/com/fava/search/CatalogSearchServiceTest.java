@@ -47,6 +47,7 @@ class CatalogSearchServiceTest {
 	private static final long CHAT_ID = -100777L;
 	private static final long OTHER_CHAT = -100888L;
 
+	private CatalogStore catalogs;
 	private SavedItemStore savedItems;
 	private SavedItemEmbeddingStore embeddings;
 	private long modelId;
@@ -59,7 +60,7 @@ class CatalogSearchServiceTest {
 		CatalogSchema.ensure(dataSource);
 		new JdbcTemplate(dataSource)
 				.execute("TRUNCATE saved_item_embeddings, saved_items, theme_topics, catalogs, embedding_models CASCADE");
-		CatalogStore catalogs = new JdbcCatalogStore(dataSource);
+		catalogs = new JdbcCatalogStore(dataSource);
 		savedItems = new JdbcSavedItemStore(dataSource);
 		embeddings = new JdbcSavedItemEmbeddingStore(dataSource);
 		modelId = new JdbcEmbeddingModelRegistry(dataSource)
@@ -160,9 +161,7 @@ class CatalogSearchServiceTest {
 				new StructuredQueryParser((system, user) -> """
 						{"query":"pasta","limit":3,"filters":{"tags":["mexican"]}}
 						"""),
-				embedding,
-				embeddings,
-				savedItems,
+				new StructuredItemsSearcher(catalogs, savedItems, embeddings, embedding),
 				introChat,
 				CatalogSearchService.DEFAULT_MAX_DISTANCE);
 
@@ -259,9 +258,7 @@ class CatalogSearchServiceTest {
 	private CatalogSearchService newSearch(String structuredJson) {
 		return new CatalogSearchService(
 				new StructuredQueryParser((system, user) -> structuredJson),
-				new FixedEmbeddingPort(ones()),
-				embeddings,
-				savedItems,
+				new StructuredItemsSearcher(catalogs, savedItems, embeddings, new FixedEmbeddingPort(ones())),
 				introChat,
 				CatalogSearchService.DEFAULT_MAX_DISTANCE);
 	}

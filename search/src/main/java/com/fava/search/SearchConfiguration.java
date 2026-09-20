@@ -1,5 +1,6 @@
 package com.fava.search;
 
+import com.fava.catalog.CatalogStore;
 import com.fava.catalog.EmbeddingModelRegistry;
 import com.fava.catalog.EmbeddingSpace;
 import com.fava.catalog.NoOpSavedItemIndexer;
@@ -56,9 +57,7 @@ public class SearchConfiguration {
 	@Bean
 	CatalogSearchPort catalogSearchPort(
 			OpenRouterProperties properties,
-			SavedItemEmbeddingStore embeddingStore,
-			SavedItemStore savedItemStore,
-			EmbeddingPort embeddingPort,
+			StructuredItemsSearcher structuredItemsSearcher,
 			ObjectMapper objectMapper) {
 		if (!properties.hasApiKey()) {
 			return new UnavailableCatalogSearchService();
@@ -71,11 +70,18 @@ public class SearchConfiguration {
 		StructuredQueryParser queryParser = new StructuredQueryParser(chatModel, objectMapper);
 		return new CatalogSearchService(
 				queryParser,
-				embeddingPort,
-				embeddingStore,
-				savedItemStore,
+				structuredItemsSearcher,
 				chatModel,
 				CatalogSearchService.DEFAULT_MAX_DISTANCE);
+	}
+
+	@Bean
+	StructuredItemsSearcher structuredItemsSearcher(
+			CatalogStore catalogStore,
+			SavedItemStore savedItemStore,
+			SavedItemEmbeddingStore embeddingStore,
+			EmbeddingPort embeddingPort) {
+		return new StructuredItemsSearcher(catalogStore, savedItemStore, embeddingStore, embeddingPort);
 	}
 
 	@Bean

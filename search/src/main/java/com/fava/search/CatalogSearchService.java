@@ -1,14 +1,8 @@
 package com.fava.search;
 
 import com.fava.catalog.SavedItem;
-import com.fava.catalog.SavedItemEmbeddingStore;
-import com.fava.catalog.SavedItemFilters;
-import com.fava.catalog.SavedItemHit;
-import com.fava.catalog.SavedItemStore;
 import com.fava.catalog.SourceType;
 import com.fava.classify.ChatModelPort;
-import com.fava.classify.EmbeddingPort;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -34,23 +28,17 @@ public final class CatalogSearchService implements CatalogSearchPort {
 			""";
 
 	private final StructuredQueryParser queryParser;
-	private final EmbeddingPort embeddingPort;
-	private final SavedItemEmbeddingStore embeddingStore;
-	private final SavedItemStore savedItemStore;
+	private final StructuredItemsSearcher itemsSearcher;
 	private final ChatModelPort chatModel;
 	private final double maxDistance;
 
 	public CatalogSearchService(
 			StructuredQueryParser queryParser,
-			EmbeddingPort embeddingPort,
-			SavedItemEmbeddingStore embeddingStore,
-			SavedItemStore savedItemStore,
+			StructuredItemsSearcher itemsSearcher,
 			ChatModelPort chatModel,
 			double maxDistance) {
 		this.queryParser = queryParser;
-		this.embeddingPort = embeddingPort;
-		this.embeddingStore = embeddingStore;
-		this.savedItemStore = savedItemStore;
+		this.itemsSearcher = itemsSearcher;
 		this.chatModel = chatModel;
 		this.maxDistance = maxDistance;
 	}
@@ -61,7 +49,9 @@ public final class CatalogSearchService implements CatalogSearchPort {
 			return new CatalogSearchResult.NothingFound(NOTHING_FOUND_MESSAGE);
 		}
 		StructuredQuery structured = queryParser.parse(question.trim());
-		List<SavedItem> ranked = retrieve(chatId, structured);
+		List<SavedItem> ranked = itemsSearcher.retrieve(chatId, structured, maxDistance).stream()
+				.map(RankedSavedItem::item)
+				.toList();
 		if (ranked.isEmpty()) {
 			return new CatalogSearchResult.NothingFound(NOTHING_FOUND_MESSAGE);
 		}
@@ -73,40 +63,6 @@ public final class CatalogSearchService implements CatalogSearchPort {
 			intro = DEFAULT_INTRO_TEMPLATE;
 		}
 		return new CatalogSearchResult.Answer(intro.trim(), items);
-	}
-
-	private List<SavedItem> retrieve(long chatId, StructuredQuery structured) {
-		SavedItemFilters filters = toFilters(structured.filters());
-		List<Long> candidateIds = null;
-		if (!filters.isEmpty()) {
-			List<SavedItem> filtered = savedItemStore.findByCatalogFilters(chatId, filters);
-			if (filtered.isEmpty()) {
-				return List.of();
-			}
-			candidateIds = filtered.stream().map(SavedItem::id).toList();
-		}
-		float[] queryVector = embeddingPort.embed(structured.query());
-		List<SavedItemHit> hits = candidateIds == null
-				? embeddingStore.findSimilar(chatId, queryVector, structured.limit(), maxDistance)
-				: embeddingStore.findSimilarAmong(
-						chatId, queryVector, structured.limit(), maxDistance, candidateIds);
-		if (hits.isEmpty()) {
-			return List.of();
-		}
-		List<SavedItem> ranked = new ArrayList<>();
-		for (SavedItemHit hit : hits) {
-			savedItemStore.findById(hit.savedItemId()).ifPresent(ranked::add);
-		}
-		return ranked;
-	}
-
-	private static SavedItemFilters toFilters(StructuredQuery.Filters filters) {
-		return new SavedItemFilters(
-				filters.sourceType(),
-				filters.since(),
-				filters.recommendedBy(),
-				filters.tags(),
-				filters.themeName());
 	}
 
 	private static CatalogSearchResult.Citation toCitation(long chatId, SavedItem item) {
