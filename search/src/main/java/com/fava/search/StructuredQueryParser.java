@@ -1,5 +1,6 @@
 package com.fava.search;
 
+import com.fava.catalog.EmbeddingProviderException;
 import com.fava.classify.ChatModelPort;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -58,6 +59,22 @@ public final class StructuredQueryParser {
 		return parseOrFallback(raw, fallbackQuery);
 	}
 
+	public StructuredQuery parseStrict(String catalogQuestion) {
+		if (catalogQuestion == null || catalogQuestion.isBlank()) {
+			throw new IllegalArgumentException("catalogQuestion must not be blank");
+		}
+		String trimmedQuestion = catalogQuestion.trim();
+		String raw;
+		try {
+			raw = chat.complete(SYSTEM_PROMPT, trimmedQuestion);
+		}
+		catch (RuntimeException e) {
+			log.warn("Chat model failed during structured query parse: {}", e.toString());
+			throw new EmbeddingProviderException("Chat model failed", e);
+		}
+		return parseOrThrow(raw);
+	}
+
 	private StructuredQuery parseOrFallback(String raw, String fallbackQuery) {
 		Optional<JsonNode> json = extractJson(raw);
 		if (json.isEmpty()) {
@@ -67,6 +84,21 @@ public final class StructuredQueryParser {
 		String query = textOrNull(node, "query");
 		if (query == null) {
 			return fallback(fallbackQuery);
+		}
+		int limit = intOrDefault(node, "limit", StructuredQuery.DEFAULT_LIMIT);
+		StructuredQuery.Filters filters = parseFilters(node.get("filters"));
+		return new StructuredQuery(query, limit, filters);
+	}
+
+	private StructuredQuery parseOrThrow(String raw) {
+		Optional<JsonNode> json = extractJson(raw);
+		if (json.isEmpty()) {
+			throw new EmbeddingProviderException("Chat model returned invalid structured query JSON");
+		}
+		JsonNode node = json.get();
+		String query = textOrNull(node, "query");
+		if (query == null) {
+			throw new EmbeddingProviderException("Chat model returned invalid structured query JSON");
 		}
 		int limit = intOrDefault(node, "limit", StructuredQuery.DEFAULT_LIMIT);
 		StructuredQuery.Filters filters = parseFilters(node.get("filters"));

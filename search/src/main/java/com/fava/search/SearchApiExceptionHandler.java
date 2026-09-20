@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /**
  * RFC 7807 problem+json mapping for Search developer HTTP endpoints.
  */
-@RestControllerAdvice(assignableTypes = SearchItemsController.class)
+@RestControllerAdvice(assignableTypes = {SearchItemsController.class, StructuredQueriesController.class})
 public class SearchApiExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(SearchApiExceptionHandler.class);
