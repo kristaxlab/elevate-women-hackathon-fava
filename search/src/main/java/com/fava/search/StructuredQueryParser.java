@@ -68,7 +68,7 @@ public final class StructuredQueryParser {
 		try {
 			raw = chat.complete(SYSTEM_PROMPT, trimmedQuestion);
 		}
-		catch (RuntimeException e) {
+		catch (IllegalStateException e) {
 			log.warn("Chat model failed during structured query parse: {}", e.toString());
 			throw new EmbeddingProviderException("Chat model failed", e);
 		}
